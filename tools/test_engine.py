@@ -140,6 +140,34 @@ class RenderLoopTests(unittest.TestCase):
                 self.assertEqual(pipe.resets, expected)
                 self.assertEqual(stats["resets"], len(expected))
 
+    def test_refresh_at_pauses_picks_quiet_boundaries_30_to_40_s_apart(self):
+        per_chunk = NEW * 640                        # 1.12 s of 16 kHz audio
+        seconds = 120
+        rng = np.random.default_rng(5)
+        mono = (rng.standard_normal(seconds * 16000) * 0.1).astype(np.float32)
+        quiet = [33, 64, 98]                         # chunk boundaries made silent
+        for c in quiet:
+            mono[c * per_chunk - 4000:c * per_chunk + 4000] *= 0.001
+        chunks = int(np.ceil(mono.size / per_chunk))
+        picks = engine.pause_refreshes(mono, chunks, per_chunk, 30.0)
+        self.assertEqual(picks, quiet)
+        last = 0
+        for c in picks:
+            gap = (c - last) * per_chunk / 16000
+            self.assertTrue(30 - 1.12 <= gap <= 40 + 1.12, gap)
+            last = c
+        self.assertLess(picks[-1] * per_chunk / 16000, seconds - engine.REFRESH_TAIL)
+        # The render loop restarts exactly those chunks.
+        pipe = FakePipeline()
+        wave = torch.from_numpy(np.stack([mono, mono]))
+        stats = engine.render(pipe, MOTION, self.portrait, wave, 16000,
+                              str(Path(self.dir.name) / "p.mp4"),
+                              anchor=engine.ANCHOR_PAUSES, reset_seconds=30)
+        self.assertEqual(pipe.resets, quiet)
+        self.assertEqual(stats["reset_times_s"], [round(c * NEW / 25, 2) for c in quiet])
+        # Under 30 s: nothing to refresh.
+        self.assertEqual(engine.pause_refreshes(mono[:25 * 16000], 23, per_chunk, 30.0), [])
+
     def test_reset_interval(self):
         self.assertEqual(engine.reset_interval(engine.ANCHOR_CONTINUOUS, 10, NEW), 0)
         self.assertEqual(engine.reset_interval(engine.ANCHOR_EVERY_CHUNK, 10, NEW), 1)

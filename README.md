@@ -9,12 +9,11 @@ a 512 × 512 talking-head video at 25 fps, stitched with your original audio, on
 which compresses 32 × 32 pixels and 8 frames into one latent: very fast, but soft. Pro
 decodes with the Wan 2.1 VAE (8 × 8 pixels, 4 frames), so it renders far more detail
 at roughly 4–6× Lite's cost. Upstream: Pro runs at 10.8 FPS on an RTX 4090 (about
-2.3 s per second of video); Lite at 96 FPS. Lite lives in its own template,
-[flashhead-avatar](https://github.com/tenitsky/flashhead-avatar).
+2.3 s per second of video); Lite at 96 FPS.
 
-It exists to answer one question: **can FlashHead keep a talking head seamless for
-minutes?** The workflows render the same voiceover three ways so the answer can be
-seen and measured.
+Two ways to render: **continuous** (seamless, as upstream), and **refresh at pauses**,
+which also restarts from the portrait at a pause every 30-40 s so a face cannot wander
+over minutes-long voiceovers.
 
 ComfyUI has no FlashHead nodes. This repo's small `comfyui-flashhead` pack drives
 upstream's own pipeline code, which setup installs at a pinned commit.
@@ -33,11 +32,15 @@ The **anchor** setting on the Render node controls what a chunk opens on:
 | Anchor | Each chunk opens on | Trade-off |
 |---|---|---|
 | **continuous (upstream)** | the previous chunk's last 5 frames | seamless joins; could drift over long videos |
-| **reset to portrait every chunk** | the portrait | cannot drift; a jump every 1.12 s |
-| **reset to portrait every N seconds** | the portrait every N s, otherwise continuous | one jump per N s; drift bounded |
+| **refresh from portrait at a pause** | continuous, but every 30-40 s the portrait, on the quietest chunk boundary | one small jump at a pause per 30-40 s; drift bounded |
+| reset to portrait every chunk / every N seconds | the portrait on a fixed schedule | for comparison: jumps regardless of the speech |
 
 A reset is upstream's own `reset_person_name()`: the next chunk starts the way the first
-one does.
+one does. For **refresh at a pause**, `reset_seconds` (30) is the earliest refresh after
+the previous one; the quietest chunk boundary in the following 10 s is used, measured
+on 0.2 s of audio either side, and never in the last 3 s. Chunks are 1.12 s, so the
+refresh lands within about half a second of the quietest moment. The log lists the
+refresh times.
 
 ### What a first test showed (71 s sample, same seed as Lite)
 
@@ -71,7 +74,7 @@ On first pod boot, `setup.sh`:
 5. Copies the sample portrait and voiceover into `ComfyUI/input/` (never over a file of
    the same name)
 6. Downloads the model files (skip-if-exists, resumable, validated)
-7. Installs the four workflows into ComfyUI's **Workflows** sidebar
+7. Installs the three workflows into ComfyUI's **Workflows** sidebar
 8. Hands over to `/start.sh` (ComfyUI on port **8188**, JupyterLab on **8888**)
 
 On later boots every step finds its work done and is skipped.
@@ -160,8 +163,7 @@ complete!`**.
    Timing (seconds of rendering per second of video, first chunk, peak VRAM) goes to
    `output/flashhead_stats/<name>.json`.
 
-To compare anchors, render the sample with workflows 1, 2 and 3 (same seed) and play the
-three videos side by side, or measure them from a Jupyter terminal:
+To measure seams and drift of a render from a Jupyter terminal:
 
 ```bash
 cd /workspace/runpod-slim/ComfyUI
@@ -177,9 +179,10 @@ python /tmp/flashhead-pro-avatar.*/tools/analyze_seams.py output/sample_voiceove
 | Workflow | Anchor | Output suffix |
 |---|---|---|
 | `flashhead_pro_1_continuous` | continuous (upstream) | `_pro_continuous` |
-| `flashhead_pro_2_reset_every_chunk` | reset to portrait every chunk | `_pro_reset_every_chunk` |
-| `flashhead_pro_3_reset_every_10s` | reset to portrait every 10 s (9 chunks) | `_pro_reset_every_10s` |
-| `flashhead_pro_4_batch_folder` | continuous, every voiceover in `input/batch_audio/` | `_pro_continuous` |
+| `flashhead_pro_2_refresh_at_pauses` | refresh from portrait at a pause, every 30-40 s | `_pro_refresh` |
+| `flashhead_pro_3_batch_folder_refresh_at_pauses` | the same, for every voiceover in `input/batch_audio/` | `_pro_refresh` |
+
+Use **1** for short clips and **2** for voiceovers of a minute or more.
 
 The anchor, reset spacing, seed and colour correction are all on the Render node, so
 any workflow can be switched; change `name_suffix` with them so outputs do not overwrite
@@ -257,7 +260,7 @@ several minutes.
 │   ├── test_boot.py                       # full setup with image/network fixtures (Linux)
 │   ├── test_jupyter.py                    # auth switch and real Jupyter Server smoke test
 │   └── test_setup.py                      # Bash download and start-command checks
-└── workflows/                             # the four workflows listed above
+└── workflows/                             # the three workflows listed above
 ```
 
 ## Credits

@@ -117,8 +117,10 @@ class WorkflowTests(unittest.TestCase):
                     self.assertEqual(nodes[11]["widgets_values"][0], builder.SAMPLE_VOICEOVER)
         suffixes = [v["suffix"] for v in builder.VARIANTS.values()]
         self.assertEqual(len(set(suffixes)), len(suffixes), "outputs must not collide")
-        self.assertEqual({builder.ANCHOR_CONTINUOUS, builder.ANCHOR_EVERY_CHUNK,
-                          builder.ANCHOR_EVERY_N}, set(engine.ANCHORS))
+        self.assertTrue({builder.ANCHOR_CONTINUOUS, builder.ANCHOR_PAUSES}
+                        <= set(engine.ANCHORS))
+        self.assertEqual([w["variant"] for w in builder.WORKFLOWS],
+                         ["continuous", "refresh_at_pauses", "refresh_at_pauses"])
 
     def test_samples_ship_with_the_repo(self):
         shipped = {p.name for p in (ROOT / "samples").iterdir()}

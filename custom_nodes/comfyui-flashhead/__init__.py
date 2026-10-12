@@ -98,8 +98,10 @@ def _video_ui(path):
 
 
 ANCHOR_TOOLTIP = ("continuous: every ~1 s chunk continues from the previous one "
-                  "(upstream). reset every chunk: every chunk starts again from the "
-                  "portrait. reset every N seconds: a re-anchor every reset_seconds.")
+                  "(upstream). refresh at a pause: continuous, but on the quietest chunk "
+                  "boundary 30-40 s after the last refresh (reset_seconds + 10 s) the "
+                  "next chunk starts again from the portrait. reset every chunk / every "
+                  "N seconds: restarts from the portrait on a fixed schedule.")
 
 
 class FlashHeadLoader:
@@ -168,8 +170,10 @@ class FlashHeadRender:
                 "audio": ("AUDIO",),
                 "anchor": (engine.ANCHORS, {"tooltip": ANCHOR_TOOLTIP}),
                 "reset_seconds": ("FLOAT", {
-                    "default": 10.0, "min": 1.0, "max": 600.0, "step": 0.5,
-                    "tooltip": "For 'reset every N seconds' only."}),
+                    "default": 30.0, "min": 1.0, "max": 600.0, "step": 0.5,
+                    "tooltip": "Refresh at a pause: earliest refresh after the last one "
+                               "(the quietest boundary in the following 10 s is used). "
+                               "Reset every N seconds: the spacing."}),
                 "seed": ("INT", {"default": 42, "min": 0, "max": 2**31 - 1}),
                 "color_correction": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05,

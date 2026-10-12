@@ -21,6 +21,8 @@ The anchor setting is the experiment this template exists for:
                         so every ~1 s starts again from the portrait pose
   reset every N seconds the same, but only every N seconds: a periodic re-anchor
                         against slow drift, with one visible reset at each
+  refresh at a pause    the same re-anchor, but placed on the quietest chunk boundary
+                        30-40 s after the last one, where the jump shows least
 
 A reset is upstream's own reset_person_name(): the next chunk starts the way the first
 one does.
@@ -59,9 +61,16 @@ STEPS = 4                      # the distilled Lite and Pro models
 AUDIO_CONTEXT = 2              # wav2vec2 frames either side of each video frame
 
 ANCHOR_CONTINUOUS = "continuous (upstream)"
+ANCHOR_PAUSES = "refresh from portrait at a pause"
 ANCHOR_EVERY_CHUNK = "reset to portrait every chunk"
 ANCHOR_EVERY_N = "reset to portrait every N seconds"
-ANCHORS = [ANCHOR_CONTINUOUS, ANCHOR_EVERY_CHUNK, ANCHOR_EVERY_N]
+ANCHORS = [ANCHOR_CONTINUOUS, ANCHOR_PAUSES, ANCHOR_EVERY_CHUNK, ANCHOR_EVERY_N]
+# Refresh at a pause: the quietest chunk boundary between reset_seconds and
+# reset_seconds + PAUSE_WINDOW after the previous refresh (30-40 s by default), never
+# in the last REFRESH_TAIL seconds.
+PAUSE_WINDOW = 10.0
+REFRESH_TAIL = 3.0
+PAUSE_PROBE = 0.2   # seconds of audio either side of a boundary measured for loudness
 
 FRAMING_FACE = "face crop"
 FRAMING_WHOLE = "whole image (center crop)"
@@ -232,6 +241,35 @@ def reset_interval(anchor, reset_seconds, new_frames):
     return 0
 
 
+def pause_refreshes(mono16, chunks, per_chunk, min_seconds, window=PAUSE_WINDOW):
+    """Chunk indices that start again from the portrait, each at the quietest chunk
+    boundary between min_seconds and min_seconds + window after the previous one."""
+    chunk_s = per_chunk / SAMPLE_RATE
+    probe = int(PAUSE_PROBE * SAMPLE_RATE)
+    loudness = np.full(chunks, np.inf)
+    for i in range(1, chunks):
+        seg = mono16[max(0, i * per_chunk - probe):i * per_chunk + probe]
+        if seg.size:
+            loudness[i] = float(np.sqrt(np.mean(seg.astype(np.float64) ** 2)))
+    last_chunk = int((mono16.size / SAMPLE_RATE - REFRESH_TAIL) / chunk_s)
+    picks, last = [], 0
+    lo, hi = max(1, round(min_seconds / chunk_s)), round((min_seconds + window) / chunk_s)
+    while True:
+        first, end = last + lo, min(last + hi, last_chunk, chunks - 1)
+        if first > end:
+            return picks
+        last = first + int(np.argmin(loudness[first:end + 1]))
+        picks.append(last)
+
+
+def reset_chunks(anchor, reset_seconds, new_frames, chunks, per_chunk, mono16):
+    """Every chunk index that starts again from the portrait (chunk 0 not counted)."""
+    if anchor == ANCHOR_PAUSES:
+        return pause_refreshes(mono16, chunks, per_chunk, float(reset_seconds))
+    interval = reset_interval(anchor, reset_seconds, new_frames)
+    return [i for i in range(1, chunks) if resets_before(i, interval)]
+
+
 def resets_before(chunk, interval):
     """Whether chunk `chunk` (0-based) starts from the portrait because of a reset.
     Chunk 0 always starts from the portrait; it is not counted as a reset."""
@@ -312,7 +350,7 @@ def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_pat
     chunks, per_chunk = plan(mono.size, new_frames)
     padded = np.zeros(chunks * per_chunk, dtype=np.float32)
     padded[:mono.size] = mono
-    interval = reset_interval(anchor, reset_seconds, new_frames)
+    refreshes = set(reset_chunks(anchor, reset_seconds, new_frames, chunks, per_chunk, mono))
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     work = tempfile.mkdtemp(prefix="flashhead-", dir=os.path.dirname(os.path.abspath(out_path)))
@@ -333,13 +371,15 @@ def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_pat
         window = deque([0.0] * cached, maxlen=cached)
         writer = VideoWriter(os.path.join(work, "video.mp4"))
         chunk_seconds, resets = [], 0
+        where = ", ".join(f"{i * new_frames / FPS:.1f}s" for i in sorted(refreshes))
         log(f"{LOG} {mono.size / SAMPLE_RATE:.1f} s of audio -> {chunks} chunks of "
-              f"{new_frames} frames, anchor: {anchor}"
-              + (f" (every {interval} chunks)" if interval > 1 else ""))
+            f"{new_frames} frames, anchor: {anchor}"
+            + (f"; restarts from the portrait at {where}" if 0 < len(refreshes) <= 40 else
+               f"; {len(refreshes)} restarts from the portrait" if refreshes else ""))
         try:
             for i in range(chunks):
                 t0 = time.time()
-                if resets_before(i, interval):
+                if i in refreshes:
                     pipeline.reset_person_name()
                     resets += 1
                 window.extend(padded[i * per_chunk:(i + 1) * per_chunk].tolist())
@@ -371,8 +411,8 @@ def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_pat
     # The first chunks include torch.compile's warm-up; steady state excludes them.
     steady = chunk_seconds[3:] or chunk_seconds
     stats = {
-        "output": out_path, "anchor": anchor, "reset_every_chunks": interval,
-        "resets": resets, "chunks": chunks, "frames_per_chunk": new_frames,
+        "output": out_path, "anchor": anchor, "resets": resets,
+        "reset_times_s": [round(i * new_frames / FPS, 2) for i in sorted(refreshes)], "chunks": chunks, "frames_per_chunk": new_frames,
         "audio_seconds": round(seconds, 3), "render_seconds": round(render_seconds, 2),
         "seconds_per_video_second": round(render_seconds / seconds, 3),
         "steady_chunk_seconds": round(float(np.median(steady)), 3),

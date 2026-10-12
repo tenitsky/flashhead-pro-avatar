@@ -6,8 +6,9 @@ Generate the FlashHead Pro workflow JSON files. Re-run after editing:
 
 Every workflow is the same small graph: Load Portrait -> FlashHead Portrait (face crop)
 -> FlashHead Render, with the model loader and the voiceover. They differ only in the
-anchor (how chunks join), which is what this template exists to compare, and the batch
-version renders a folder of voiceovers. Each opens on the shipped samples.
+anchor (how chunks join): continuous, or continuous with a refresh from the portrait at
+a pause every 30-40 s; the batch version renders a folder of voiceovers with refreshes.
+Each opens on the shipped samples.
 
 Layout: numbered stages from left to right, each a coloured group with a note
 underneath, and a "Start here" note on the far left. Nothing is collapsed.
@@ -37,40 +38,33 @@ SAMPLE_PORTRAIT = "sample_portrait.png"
 SAMPLE_VOICEOVER = "sample_voiceover.mp3"
 
 ANCHOR_CONTINUOUS = "continuous (upstream)"
-ANCHOR_EVERY_CHUNK = "reset to portrait every chunk"
-ANCHOR_EVERY_N = "reset to portrait every N seconds"
+ANCHOR_PAUSES = "refresh from portrait at a pause"
 FRAMING_FACE = "face crop"
 
 VARIANTS = {
     "continuous": dict(
-        title="Continuous (upstream)", anchor=ANCHOR_CONTINUOUS, reset_seconds=10.0,
+        title="Continuous", anchor=ANCHOR_CONTINUOUS, reset_seconds=30.0,
         suffix="_pro_continuous",
-        summary="Every ~1.1 s chunk continues from the previous one's last 5 frames, as "
-                "upstream does: no pose resets. The question this workflow answers: "
-                "does it stay seamless, and does the face or colour drift over minutes?"),
-    "reset_every_chunk": dict(
-        title="Reset to Portrait Every Chunk", anchor=ANCHOR_EVERY_CHUNK,
-        reset_seconds=10.0, suffix="_pro_reset_every_chunk",
-        summary="Every ~1.1 s chunk starts again from the portrait, like H3's anchor "
-                "frames. No drift is possible, but expect a visible jump about once a "
-                "second. The comparison against Continuous."),
-    "reset_every_10s": dict(
-        title="Reset to Portrait Every 10 s", anchor=ANCHOR_EVERY_N, reset_seconds=10.0,
-        suffix="_pro_reset_every_10s",
-        summary="Continuous, but every 10 s the next chunk starts again from the "
-                "portrait: one visible reset per 10 s in exchange for a hard limit on "
-                "drift. Change reset_seconds on the Render node to try other spacings."),
+        summary="Every 1.12 s chunk continues from the previous one's last 5 frames, as "
+                "upstream does: seamless, with no pose resets. Over the 71 s sample it "
+                "did not drift."),
+    "refresh_at_pauses": dict(
+        title="Refresh at Pauses (30-40 s)", anchor=ANCHOR_PAUSES, reset_seconds=30.0,
+        suffix="_pro_refresh",
+        summary="Continuous, plus a full refresh against drift on long videos: on the "
+                "quietest chunk boundary 30-40 s after the last refresh, the next chunk "
+                "starts again from the portrait. A small jump at a pause, in exchange for "
+                "a face that cannot wander over minutes."),
 }
 
 WORKFLOWS = [
     dict(variant="continuous", batch=False, path="flashhead_pro_1_continuous.json",
          id="b6884540-f6dc-46dd-9c9f-b8185325d314"),
-    dict(variant="reset_every_chunk", batch=False,
-         path="flashhead_pro_2_reset_every_chunk.json",
+    dict(variant="refresh_at_pauses", batch=False,
+         path="flashhead_pro_2_refresh_at_pauses.json",
          id="db345799-55fc-4d16-99c4-34a0f27c2d09"),
-    dict(variant="reset_every_10s", batch=False, path="flashhead_pro_3_reset_every_10s.json",
-         id="c7004a06-d437-4cb8-9cbd-125a048018c5"),
-    dict(variant="continuous", batch=True, path="flashhead_pro_4_batch_folder.json",
+    dict(variant="refresh_at_pauses", batch=True,
+         path="flashhead_pro_3_batch_folder_refresh_at_pauses.json",
          id="598d1f1f-eea6-40bf-bfa8-ea15b169aea4"),
 ]
 
@@ -107,7 +101,7 @@ def note_render(v, batch):
 
 {where}{v['suffix']}.mp4`, with your original audio. Timing (seconds of rendering per second of video, first chunk, peak VRAM) goes to `output/flashhead_stats/`.
 
-**color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two anchors can be compared on identical noise."""
+**color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two renders can be compared on identical noise."""
 
 
 def note_start(w, v):
@@ -127,7 +121,7 @@ def note_start(w, v):
 3. Check the **portrait preview** (stage 2): face crop or whole image.
 4. **Run.** One run renders the whole video and shows it on the Render node.
 
-Compare: render the sample with workflows 1, 2 and 3, then watch the three videos side by side.
+Long voiceovers (minutes): use workflow 2, which refreshes from the portrait at a pause every 30-40 s.
 
 Full instructions: https://github.com/tenitsky/flashhead-pro-avatar"""
 

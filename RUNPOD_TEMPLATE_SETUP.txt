@@ -129,9 +129,10 @@ HF_TOKEN=
 
 # Workflows (copied into ComfyUI's Workflows sidebar; edited copies are never overwritten)
 #   flashhead_pro_1_continuous           upstream: every chunk continues the last
-#   flashhead_pro_2_reset_every_chunk    every chunk restarts from the portrait
-#   flashhead_pro_3_reset_every_10s      restart from the portrait every 10 s
-#   flashhead_pro_4_batch_folder         continuous, every voiceover in input/batch_audio/
+#   flashhead_pro_2_refresh_at_pauses    continuous + restart from the portrait at a
+#                                        pause every 30-40 s (long voiceovers)
+#   flashhead_pro_3_batch_folder_refresh_at_pauses   the same, every voiceover in
+#                                        input/batch_audio/
 
 
 # ------------------------------------------------------------------------------
@@ -158,7 +159,6 @@ HF_TOKEN=
 # 11. LINKS
 # ------------------------------------------------------------------------------
 # This template repo:        https://github.com/tenitsky/flashhead-pro-avatar
-# Lite version:              https://github.com/tenitsky/flashhead-avatar
 # Start command (raw JSON):  https://raw.githubusercontent.com/tenitsky/flashhead-pro-avatar/main/runpod-start.json
 # Base image:                https://hub.docker.com/r/runpod/comfyui/tags
 # FlashHead code:            https://github.com/Soul-AILab/SoulX-FlashHead
