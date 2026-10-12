@@ -130,6 +130,41 @@ def install_stubs():
         sys.modules["mediapipe"] = mediapipe
 
 
+def keep_audio_hidden_states(encoder):
+    """Make upstream's wav2vec2 encoder return its hidden states on transformers 5.
+
+    Upstream overrides Wav2Vec2Model.forward and calls the encoder with
+    output_hidden_states=True. transformers 5 collects hidden states only through the
+    decorators on its own forward methods, so with upstream's override they come back
+    as None and preprocess_audio fails on hidden_states[1:]. This records the input of
+    the first layer and the output of every layer, exactly what transformers 4 returns,
+    and fills them in only when they are missing.
+    """
+    if getattr(encoder, "_flashhead_hidden_states", False):
+        return
+    layers = encoder.encoder.layers
+    original = encoder.forward
+
+    def forward(*args, **kwargs):
+        seen = []
+        handles = [layers[0].register_forward_pre_hook(
+            lambda module, inputs: seen.append(inputs[0]))]
+        handles += [layer.register_forward_hook(
+            lambda module, inputs, out: seen.append(out[0] if isinstance(out, tuple) else out))
+            for layer in layers]
+        try:
+            out = original(*args, **kwargs)
+        finally:
+            for handle in handles:
+                handle.remove()
+        if kwargs.get("output_hidden_states") and getattr(out, "hidden_states", None) is None:
+            out["hidden_states"] = tuple(seen)
+        return out
+
+    encoder.forward = forward
+    encoder._flashhead_hidden_states = True
+
+
 def load_pipeline(ckpt_dir, wav2vec_dir, model_type="pro", compile_model=True,
                   device="cuda"):
     """Build upstream's FlashHeadPipeline. Returns (pipeline, motion_frames_num)."""
@@ -149,6 +184,7 @@ def load_pipeline(ckpt_dir, wav2vec_dir, model_type="pro", compile_model=True,
     fhp.COMPILE_MODEL = fhp.COMPILE_VAE = bool(compile_model)
     pipeline = fhp.FlashHeadPipeline(checkpoint_dir=ckpt_dir, model_type=model_type,
                                      wav2vec_dir=wav2vec_dir, device=device)
+    keep_audio_hidden_states(pipeline.audio_encoder)
     motion_frames_num = (MOTION_LATENTS - 1) * pipeline.config.vae_stride[0] + 1
     log(f"{LOG} {model_type} model loaded from {ckpt_dir} "
           f"(compile={'on' if compile_model else 'off'}, "

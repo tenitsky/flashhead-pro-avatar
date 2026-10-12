@@ -114,6 +114,32 @@ class UpstreamTests(unittest.TestCase):
         self.assertTrue(hasattr(model, "WanModelAudioProject"))
         self.assertTrue(hasattr(wan, "WanVAE"))
 
+    def test_audio_encoder_returns_hidden_states_on_any_transformers(self):
+        # transformers 5 drops hidden states from upstream's overridden forward, and
+        # preprocess_audio then fails on hidden_states[1:]; the engine restores them.
+        import torch
+        import transformers
+        from flash_head.audio_analysis.wav2vec2 import Wav2Vec2Model
+        config = transformers.Wav2Vec2Config(
+            hidden_size=32, num_hidden_layers=3, num_attention_heads=2,
+            intermediate_size=64, conv_dim=(16, 16), conv_stride=(5, 2),
+            conv_kernel=(10, 3), num_conv_pos_embeddings=16,
+            num_conv_pos_embedding_groups=2, do_stable_layer_norm=False)
+        torch.manual_seed(0)
+        encoder = Wav2Vec2Model(config).eval()
+        audio = torch.randn(1, 16000)
+        with torch.no_grad():
+            native = encoder(audio, seq_len=25, output_hidden_states=True).hidden_states
+            engine.keep_audio_hidden_states(encoder)
+            engine.keep_audio_hidden_states(encoder)        # idempotent
+            states = encoder(audio, seq_len=25, output_hidden_states=True).hidden_states
+        self.assertEqual(len(states), config.num_hidden_layers + 1,
+                         transformers.__version__)
+        self.assertTrue(all(h.shape == (1, 25, 32) for h in states))
+        if native is not None:                               # transformers 4: unchanged
+            for a, b in zip(native, states):
+                self.assertTrue(torch.equal(a, b))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
