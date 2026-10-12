@@ -10,10 +10,10 @@ file; engine.py drives it. See engine.py for how chunks join and what the anchor
 setting does.
 """
 
-import json
 import math
 import os
 import re
+import shutil
 
 import numpy as np
 import torch
@@ -26,7 +26,6 @@ LOG = engine.LOG
 CATEGORY = "FlashHead"
 MODELS = ["pro"]
 AUDIO_EXTENSIONS = (".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus")
-STATS_DIR = "flashhead_stats"
 
 _loaded = {}  # (model, compile) -> (pipeline, motion_frames_num)
 
@@ -91,17 +90,40 @@ def _render(flashhead, portrait, waveform, sample_rate, name, anchor, reset_seco
     # carries the real total.
     chunks = math.ceil(engine.video_frames(engine.to_mono16(waveform, sample_rate).size)
                        / (engine.FRAME_NUM - motion))
+    _clear_old_scratch()
+    # Scratch files go to ComfyUI's temp folder, which ComfyUI empties at every start;
+    # output only ever holds the videos (and the parts of an unfinished one).
     stats = engine.render(pipeline, motion, _portrait_array(portrait), waveform,
                           sample_rate, out, anchor=anchor, reset_seconds=reset_seconds,
                           seed=seed, color_correction=color_correction,
-                          on_chunk=_progress(chunks))
-    stats["peak_vram_gb"] = (round(torch.cuda.max_memory_allocated() / 2**30, 2)
-                             if torch.cuda.is_available() else None)
-    stats_dir = os.path.join(folder_paths.get_output_directory(), STATS_DIR)
-    os.makedirs(stats_dir, exist_ok=True)
-    with open(os.path.join(stats_dir, name + ".json"), "w", encoding="utf-8") as f:
-        json.dump(stats, f, indent=1)
+                          on_chunk=_progress(chunks),
+                          work_dir=folder_paths.get_temp_directory())
+    if torch.cuda.is_available():
+        engine.log(f"{LOG} peak VRAM {torch.cuda.max_memory_allocated() / 2**30:.1f} GB")
     return out, stats
+
+
+SCRATCH_FILES = {"portrait.png", "video.mp4", "video.mp4.txt", "audio.wav", "part.wav"}
+
+
+def _clear_old_scratch():
+    """Remove what earlier versions left in output: scratch folders from a pod that
+    stopped mid-render (output/flashhead-xxxxxxxx holding only their own scratch
+    files) and an empty flashhead_parts folder."""
+    out = folder_paths.get_output_directory()
+    try:
+        names = os.listdir(out)
+    except OSError:
+        return
+    for entry in names:
+        path = os.path.join(out, entry)
+        if (re.fullmatch(r"flashhead-[a-z0-9_]{8}", entry) and os.path.isdir(path)
+                and set(os.listdir(path)) <= SCRATCH_FILES):
+            shutil.rmtree(path, ignore_errors=True)
+    try:  # an empty parts folder, left once no render is unfinished
+        os.rmdir(os.path.join(out, engine.PARTS_DIR))
+    except OSError:
+        pass
 
 
 def _video_ui(path):

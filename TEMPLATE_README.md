@@ -25,13 +25,14 @@ Jupyter has no login by default; anyone with its URL can run commands. For a log
 4. Check the portrait preview. **face crop** frames a square twice the face width, as FlashHead was trained; **whole image** keeps shoulders and background (smaller face). face_ratio widens the crop.
 5. **Run.** The first run loads the model and warms up for a minute or two.
 
-The video is saved as ComfyUI/output/<audio name>_pro_continuous.mp4. Timing and peak VRAM go to output/flashhead_stats/.
+The video is saved as ComfyUI/output/<audio name>_pro_continuous.mp4. Timing and peak VRAM are printed in the log.
 
 ## Watch it as it renders
 
 - The Render node shows the **newest frame** live.
 - The video is saved in **~30 s parts** you can play in JupyterLab while the rest renders: output/flashhead_parts/<name>/part_001.mp4, ...
 - **Cancel** to stop; queue again with the same inputs and it **resumes** after the last finished part.
+- When the video is done, the parts are removed: output holds only finished videos.
 
 ## Workflows
 

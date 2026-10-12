@@ -100,9 +100,9 @@ def note_render(v, batch):
 
 **anchor: {v['anchor']}**. {v['summary']}
 
-{where}{v['suffix']}.mp4`, with your original audio. Timing (seconds of rendering per second of video, first chunk, peak VRAM) goes to `output/flashhead_stats/`.
+{where}{v['suffix']}.mp4`, with your original audio. Timing (seconds of rendering per second of video, peak VRAM) is printed in the log.
 
-**Watch it as it renders.** The Render node shows the newest frame live, and the video is saved in ~30 s parts you can play in JupyterLab while the rest renders: `output/flashhead_parts/<name>/part_001.mp4`, ... **Cancel** to stop; queue again with the same inputs and it resumes after the last finished part.
+**Watch it as it renders.** The Render node shows the newest frame live, and the video is saved in ~30 s parts you can play in JupyterLab while the rest renders: `output/flashhead_parts/<name>/part_001.mp4`, ... **Cancel** to stop; queue again with the same inputs and it resumes after the last finished part. The parts are removed when the video is done.
 
 **color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two renders can be compared on identical noise."""
 

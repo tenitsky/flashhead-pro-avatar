@@ -173,8 +173,9 @@ complete!`**.
    with `compile` on, spends a minute or two warming up. The Render node shows the
    newest frame as it renders, and finished parts are playable straight away (below).
 5. The video is saved as `output/<audio name><suffix>.mp4` and shown on the Render node.
-   Timing (seconds of rendering per second of video, first chunk, peak VRAM) goes to
-   `output/flashhead_stats/<name>.json`.
+   That is all that stays in `output`. Timing (seconds of rendering per second of video,
+   peak VRAM) is printed in the log; scratch files go to ComfyUI's temp folder, which
+   ComfyUI empties at every start.
 
 To measure seams and drift of a render from a Jupyter terminal:
 
@@ -203,7 +204,8 @@ A 20-minute voiceover is one run, but you don't have to wait for the end to see 
   finished part and the result is identical to an uninterrupted render. Another
   voiceover, portrait, seed or anchor starts fresh.
 - When every part is done they are joined without re-encoding, the original audio is
-  laid over the whole video, and the parts folder is removed.
+  laid over the whole video, and the parts are removed. `output/flashhead_parts/` only
+  exists while a render is unfinished.
 
 ComfyUI has no pause button: **cancel** is the pause, and queueing again resumes.
 

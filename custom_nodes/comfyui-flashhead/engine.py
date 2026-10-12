@@ -536,14 +536,16 @@ def audio_slice(waveform, sample_rate, first_frame, end_frame):
 @torch.no_grad()
 def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_path,
            anchor=ANCHOR_CONTINUOUS, reset_seconds=10.0, seed=42,
-           color_correction=1.0, on_chunk=None, parts_dir=None):
+           color_correction=1.0, on_chunk=None, parts_dir=None, work_dir=None):
     """Render the whole voiceover to out_path. Returns a stats dict.
 
     portrait: 512 x 512 RGB uint8 array (frame_portrait). waveform: [channels,
     samples] or [1, channels, samples] float at sample_rate. on_chunk(i, total, frame)
     is called after every chunk with its last frame and may raise to cancel; the
     finished parts are kept, and the same call later resumes after them. parts_dir
-    defaults to <output folder>/flashhead_parts/<video name>.
+    defaults to <output folder>/flashhead_parts/<video name> and is removed with the
+    rest of that folder once the video is done. work_dir holds scratch files (the
+    system temp folder by default; ComfyUI's temp folder from the nodes).
     """
     new_frames = FRAME_NUM - motion_frames_num
     mono = to_mono16(waveform, sample_rate)
@@ -591,7 +593,9 @@ def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_pat
         done += 1
 
     os.makedirs(out_dir, exist_ok=True)
-    work = tempfile.mkdtemp(prefix="flashhead-", dir=out_dir)
+    if work_dir:
+        os.makedirs(work_dir, exist_ok=True)
+    work = tempfile.mkdtemp(prefix="flashhead-", dir=work_dir or None)
     try:
         from PIL import Image
         portrait_png = os.path.join(work, "portrait.png")
@@ -668,6 +672,8 @@ def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_pat
     finally:
         shutil.rmtree(work, ignore_errors=True)
     shutil.rmtree(session, ignore_errors=True)   # the final video holds all of it
+    with contextlib.suppress(OSError):            # and the parts folder, once empty
+        os.rmdir(os.path.dirname(session))
 
     seconds = mono.size / SAMPLE_RATE
     rendered = rendered_frames / FPS

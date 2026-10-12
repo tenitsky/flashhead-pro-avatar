@@ -2,6 +2,7 @@
 stubs and the ffmpeg output. A fake pipeline stands in for the model, recording what
 upstream's FlashHeadPipeline would be asked to do. python tools/test_engine.py"""
 import importlib.util
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -285,6 +286,9 @@ class RenderLoopTests(unittest.TestCase):
         self.assertEqual(seen[0], [])
         self.assertEqual(seen[-1], ["part_001.mp4", "part_002.mp4"])
         self.assertFalse(session.exists())
+        # Output holds only the video: scratch went to the temp folder, and the empty
+        # parts folder is gone too.
+        self.assertEqual(sorted(os.listdir(self.dir.name)), ["v.mp4"])
         video = load_video(out)
         self.assertGreaterEqual(len(video), 70 * 25)
         # The live preview is the last frame of every chunk.
