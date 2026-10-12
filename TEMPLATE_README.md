@@ -22,7 +22,7 @@ Jupyter has no login by default; anyone with its URL can run commands. For a log
 1. Open ComfyUI's **Workflows** sidebar.
 2. Select **flashhead_pro_1_continuous**.
 3. Set **Load Portrait** and **Load Voiceover**. A sample portrait and a 71 s sample voiceover are preloaded, so the first run needs no uploads.
-4. Check the portrait preview. **face crop** frames a square twice the face width, as FlashHead was trained; **whole image** keeps shoulders and background (smaller face). face_ratio widens the crop.
+4. Choose the framing. **face crop** frames a square twice the face width, as FlashHead was trained; **whole image** keeps shoulders and background (smaller face). face_ratio widens the crop.
 5. **Run.** The first run loads the model and warms up for a minute or two.
 
 The video is saved as ComfyUI/output/<audio name>_pro_continuous.mp4. Timing and peak VRAM are printed in the log.

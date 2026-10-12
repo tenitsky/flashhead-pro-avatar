@@ -91,7 +91,7 @@ class WorkflowTests(unittest.TestCase):
         for w, wf, nodes in self.each():
             with self.subTest(workflow=w["path"]):
                 links = self.sources(wf, nodes)
-                expected = {(20, "image"): (10, "IMAGE"), (21, "images"): (20, "portrait"),
+                expected = {(20, "image"): (10, "IMAGE"),
                             (40, "portrait"): (20, "portrait"),
                             (40, "flashhead"): (30, "flashhead")}
                 if not w["batch"]:

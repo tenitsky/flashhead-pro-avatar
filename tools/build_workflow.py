@@ -84,7 +84,7 @@ NOTE_PORTRAIT = """## 2. Portrait
 
 FlashHead was trained on **512 x 512 face crops**. **face crop** frames a square twice the face width around the face (upstream's framing, found with OpenCV). **whole image** center-crops the picture instead, keeping shoulders and background but making the face small.
 
-The preview shows exactly what the model sees. `face_ratio` widens the face crop (2.0 = upstream)."""
+`face_ratio` widens the face crop (2.0 = upstream). The rendered video shows the framing."""
 
 NOTE_MODEL = """## 3. Model - loaded once
 
@@ -121,7 +121,7 @@ def note_start(w, v):
 
 1. **Load Portrait** - opens on the sample portrait.
 {audio}
-3. Check the **portrait preview** (stage 2): face crop or whole image.
+3. Choose the **framing** (stage 2): face crop or whole image.
 4. **Run.** One run renders the whole video and shows it on the Render node.
 
 Long voiceovers (minutes): use workflow 2, which refreshes from the portrait in the middle of a real pause every 20-40 s.
@@ -248,8 +248,6 @@ def build(variant="continuous", batch=False):
            outputs=[("portrait", "IMAGE")], widgets=[FRAMING_FACE, 2.0],
            title="Portrait framing (face crop or whole image)", color=INPUT, cnr=LF,
            size=size(110))
-    g.node(21, "PreviewImage", inputs=[("images", "IMAGE", I, False)],
-           title="What FlashHead sees (512 x 512)", size=size(500))
 
     # 3. model
     g.node(30, "FlashHeadLoader", outputs=[("flashhead", "FLASHHEAD")],
@@ -274,7 +272,6 @@ def build(variant="continuous", batch=False):
 
     L = g.link
     L(10, 0, 20, "image")
-    L(20, 0, 21, "images")
     L(20, 0, 40, "portrait")
     L(30, 0, 40, "flashhead")
     if not batch:
@@ -282,7 +279,7 @@ def build(variant="continuous", batch=False):
 
     stages = [
         ("1. Your inputs", "input", [10] + ([] if batch else [11]), []),
-        ("2. Portrait", "portrait", [20, 21], [4]),
+        ("2. Portrait", "portrait", [20], [4]),
         ("3. Model", "models", [30], [5]),
         ("4. Render", "output", [40], [6]),
     ]

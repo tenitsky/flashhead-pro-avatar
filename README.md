@@ -165,10 +165,10 @@ complete!`**.
 2. **Load Portrait** and **Load Voiceover** open on the bundled samples
    (`sample_portrait.png`, `sample_voiceover.mp3`, 71 s), so the first run needs no
    uploads.
-3. Check the **portrait preview** (stage 2). **face crop** frames a square twice the
-   face width around the face, as FlashHead was trained; **whole image** center-crops
-   the picture instead (shoulders and background, smaller face). `face_ratio` widens
-   the face crop.
+3. Choose the **framing** (stage 2). **face crop** frames a square twice the face
+   width around the face, as FlashHead was trained; **whole image** center-crops the
+   picture instead (shoulders and background, smaller face). `face_ratio` widens the
+   face crop. The live frame on the Render node shows the framing from the first chunk.
 4. **Run.** One run renders the whole voiceover; the first run also loads the model and,
    with `compile` on, spends a minute or two warming up. The Render node shows the
    newest frame as it renders, and finished parts are playable straight away (below).

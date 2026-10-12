@@ -2,7 +2,7 @@
  "id": "598d1f1f-eea6-40bf-bfa8-ea15b169aea4",
  "revision": 0,
  "last_node_id": 40,
- "last_link_id": 4,
+ "last_link_id": 3,
  "nodes": [
   {
    "id": 1,
@@ -25,7 +25,7 @@
    },
    "title": "Start here",
    "widgets_values": [
-    "# FlashHead Pro - Refresh at Pauses (20-40 s) - Batch Folder\n\nContinuous, plus a full refresh against drift on long videos: once in every 20-40 s, in the middle of a real pause in the speech (mouth shut), the render starts again from the portrait. The cuts are planned from the whole voiceover before rendering. A small jump in a silence, in exchange for a face that cannot wander over minutes.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait.\n2. Put voiceovers in `ComfyUI/input/batch_audio/` (Jupyter, port 8888). Files already rendered are skipped.\n3. Check the **portrait preview** (stage 2): face crop or whole image.\n4. **Run.** One run renders the whole video and shows it on the Render node.\n\nLong voiceovers (minutes): use workflow 2, which refreshes from the portrait in the middle of a real pause every 20-40 s.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
+    "# FlashHead Pro - Refresh at Pauses (20-40 s) - Batch Folder\n\nContinuous, plus a full refresh against drift on long videos: once in every 20-40 s, in the middle of a real pause in the speech (mouth shut), the render starts again from the portrait. The cuts are planned from the whole voiceover before rendering. A small jump in a silence, in exchange for a face that cannot wander over minutes.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait.\n2. Put voiceovers in `ComfyUI/input/batch_audio/` (Jupyter, port 8888). Files already rendered are skipped.\n3. Choose the **framing** (stage 2): face crop or whole image.\n4. **Run.** One run renders the whole video and shows it on the Render node.\n\nLong voiceovers (minutes): use workflow 2, which refreshes from the portrait in the middle of a real pause every 20-40 s.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
    ],
    "color": "#222",
    "bgcolor": "#000"
@@ -61,7 +61,7 @@
    "type": "MarkdownNote",
    "pos": [
     1320,
-    870
+    320
    ],
    "size": [
     520,
@@ -77,7 +77,7 @@
    },
    "title": "About stage 2",
    "widgets_values": [
-    "## 2. Portrait\n\nFlashHead was trained on **512 x 512 face crops**. **face crop** frames a square twice the face width around the face (upstream's framing, found with OpenCV). **whole image** center-crops the picture instead, keeping shoulders and background but making the face small.\n\nThe preview shows exactly what the model sees. `face_ratio` widens the face crop (2.0 = upstream)."
+    "## 2. Portrait\n\nFlashHead was trained on **512 x 512 face crops**. **face crop** frames a square twice the face width around the face (upstream's framing, found with OpenCV). **whole image** center-crops the picture instead, keeping shoulders and background but making the face small.\n\n`face_ratio` widens the face crop (2.0 = upstream). The rendered video shows the framing."
    ],
    "color": "#222",
    "bgcolor": "#000"
@@ -205,8 +205,7 @@
      "name": "portrait",
      "type": "IMAGE",
      "links": [
-      2,
-      3
+      2
      ]
     }
    ],
@@ -223,35 +222,6 @@
    "bgcolor": "#533"
   },
   {
-   "id": 21,
-   "type": "PreviewImage",
-   "pos": [
-    1350,
-    280
-   ],
-   "size": [
-    460,
-    500
-   ],
-   "flags": {},
-   "order": 7,
-   "mode": 0,
-   "inputs": [
-    {
-     "localized_name": "images",
-     "name": "images",
-     "type": "IMAGE",
-     "link": 2
-    }
-   ],
-   "outputs": [],
-   "properties": {
-    "Node name for S&R": "PreviewImage",
-    "cnr_id": "comfy-core"
-   },
-   "title": "What FlashHead sees (512 x 512)"
-  },
-  {
    "id": 30,
    "type": "FlashHeadLoader",
    "pos": [
@@ -263,7 +233,7 @@
     110
    ],
    "flags": {},
-   "order": 8,
+   "order": 7,
    "mode": 0,
    "inputs": [],
    "outputs": [
@@ -272,7 +242,7 @@
      "name": "flashhead",
      "type": "FLASHHEAD",
      "links": [
-      4
+      3
      ]
     }
    ],
@@ -298,20 +268,20 @@
     560
    ],
    "flags": {},
-   "order": 9,
+   "order": 8,
    "mode": 0,
    "inputs": [
     {
      "localized_name": "flashhead",
      "name": "flashhead",
      "type": "FLASHHEAD",
-     "link": 4
+     "link": 3
     },
     {
      "localized_name": "portrait",
      "name": "portrait",
      "type": "IMAGE",
-     "link": 3
+     "link": 2
     }
    ],
    "outputs": [
@@ -353,20 +323,12 @@
    2,
    20,
    0,
-   21,
-   0,
-   "IMAGE"
-  ],
-  [
-   3,
-   20,
-   0,
    40,
    1,
    "IMAGE"
   ],
   [
-   4,
+   3,
    30,
    0,
    40,
@@ -395,7 +357,7 @@
     1320,
     0,
     520,
-    810
+    260
    ],
    "color": "#b06634",
    "font_size": 26,
