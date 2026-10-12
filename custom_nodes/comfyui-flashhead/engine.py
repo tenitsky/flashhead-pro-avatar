@@ -21,8 +21,9 @@ The anchor setting is the experiment this template exists for:
                         so every ~1 s starts again from the portrait pose
   reset every N seconds the same, but only every N seconds: a periodic re-anchor
                         against slow drift, with one visible reset at each
-  refresh at a pause    the same re-anchor, but placed on the quietest chunk boundary
-                        30-40 s after the last one, where the jump shows least
+  refresh at a pause    the same re-anchor once in every 20-40 s, in the middle of a
+                        real pause in the speech (mouth shut), planned from the whole
+                        voiceover; the chunk before it ends in the pause
 
 A reset is upstream's own reset_person_name(): the next chunk starts the way the first
 one does.
@@ -39,7 +40,6 @@ import sys
 import tempfile
 import time
 import types
-from collections import deque
 
 import numpy as np
 import torch
@@ -65,12 +65,14 @@ ANCHOR_PAUSES = "refresh from portrait at a pause"
 ANCHOR_EVERY_CHUNK = "reset to portrait every chunk"
 ANCHOR_EVERY_N = "reset to portrait every N seconds"
 ANCHORS = [ANCHOR_CONTINUOUS, ANCHOR_PAUSES, ANCHOR_EVERY_CHUNK, ANCHOR_EVERY_N]
-# Refresh at a pause: the quietest chunk boundary between reset_seconds and
-# reset_seconds + PAUSE_WINDOW after the previous refresh (30-40 s by default), never
-# in the last REFRESH_TAIL seconds.
-PAUSE_WINDOW = 10.0
+# Refresh at a pause: once in every reset_seconds to reset_seconds + PAUSE_WINDOW
+# (20-40 s by default), in the middle of a real pause, never in the last REFRESH_TAIL s.
+REFRESH_SECONDS = 20.0
+PAUSE_WINDOW = 20.0
+MIN_PAUSE = 0.4             # seconds of near-silence that count as a real pause
+PAUSE_SEARCH_EXTRA = 20.0   # look this much past the window for a real pause
 REFRESH_TAIL = 3.0
-PAUSE_PROBE = 0.2   # seconds of audio either side of a boundary measured for loudness
+SAMPLES_PER_FRAME = SAMPLE_RATE // FPS   # 640
 
 FRAMING_FACE = "face crop"
 FRAMING_WHOLE = "whole image (center crop)"
@@ -241,33 +243,101 @@ def reset_interval(anchor, reset_seconds, new_frames):
     return 0
 
 
-def pause_refreshes(mono16, chunks, per_chunk, min_seconds, window=PAUSE_WINDOW):
-    """Chunk indices that start again from the portrait, each at the quietest chunk
-    boundary between min_seconds and min_seconds + window after the previous one."""
-    chunk_s = per_chunk / SAMPLE_RATE
-    probe = int(PAUSE_PROBE * SAMPLE_RATE)
-    loudness = np.full(chunks, np.inf)
-    for i in range(1, chunks):
-        seg = mono16[max(0, i * per_chunk - probe):i * per_chunk + probe]
-        if seg.size:
-            loudness[i] = float(np.sqrt(np.mean(seg.astype(np.float64) ** 2)))
-    last_chunk = int((mono16.size / SAMPLE_RATE - REFRESH_TAIL) / chunk_s)
-    picks, last = [], 0
-    lo, hi = max(1, round(min_seconds / chunk_s)), round((min_seconds + window) / chunk_s)
+def frame_loudness(mono16, total):
+    """Loudness of every video frame in dB (RMS of its 640 samples at 16 kHz)."""
+    rms = np.zeros(total, dtype=np.float64)
+    usable = min(total, len(mono16) // SAMPLES_PER_FRAME)
+    if usable:
+        audio = mono16[:usable * SAMPLES_PER_FRAME].astype(np.float64)
+        rms[:usable] = np.sqrt((audio.reshape(usable, SAMPLES_PER_FRAME) ** 2).mean(1))
+    return 20 * np.log10(rms + 1e-9)
+
+
+def find_pauses(mono16, total):
+    """Every stretch of near-silence as (first_frame, end_frame), end exclusive.
+
+    The threshold adapts to the recording: 30% of the way from its noise floor (5th
+    percentile) to its speech level (95th), and at least 20 dB under the speech, so
+    room tone counts as silence and soft syllables do not. A single louder frame
+    inside a pause (a click, a breath) does not split it.
+    """
+    if total == 0:
+        return []
+    db = frame_loudness(mono16, total)
+    floor, speech = np.percentile(db, 5), np.percentile(db, 95)
+    threshold = min(floor + 0.3 * (speech - floor), speech - 20.0)
+    quiet = db < threshold
+    quiet[1:-1] |= quiet[:-2] & quiet[2:]          # bridge one-frame bumps
+    pauses, start = [], None
+    for i, q in enumerate(quiet):
+        if q and start is None:
+            start = i
+        elif not q and start is not None:
+            pauses.append((start, i))
+            start = None
+    if start is not None:
+        pauses.append((start, total))
+    return pauses
+
+
+def pause_refreshes(mono16, total, min_seconds=REFRESH_SECONDS, window=PAUSE_WINDOW,
+                    min_pause=MIN_PAUSE, details=False):
+    """Frames where the render starts again from the portrait, planned from the whole
+    voiceover before any chunk renders.
+
+    Walking from the start, each refresh goes in the middle of the longest real pause
+    (at least min_pause seconds of near-silence, mouth shut) between min_seconds and
+    min_seconds + window after the previous one. With no such pause there, the first
+    real pause in the next PAUSE_SEARCH_EXTRA seconds is used instead of cutting into
+    speech; only if there is none either does the longest shorter gap in the window
+    get it, and as a last resort its quietest frame. details=True returns
+    (frame, pause_seconds, how) tuples.
+    """
+    if total <= 0:
+        return []
+    lo = max(1.0, float(min_seconds))
+    lo_f, hi_f = int(round(lo * FPS)), int(round((lo + max(0.0, window)) * FPS))
+    extra_f = int(round(PAUSE_SEARCH_EXTRA * FPS))
+    need = max(1, int(round(float(min_pause) * FPS)))
+    db = frame_loudness(mono16, total)
+    pauses = find_pauses(mono16, total)
+    end_limit = total - int(round(REFRESH_TAIL * FPS))
+    plan, last = [], 0
+
+    def mid(p):
+        return (p[0] + p[1]) // 2
+
     while True:
-        first, end = last + lo, min(last + hi, last_chunk, chunks - 1)
-        if first > end:
-            return picks
-        last = first + int(np.argmin(loudness[first:end + 1]))
-        picks.append(last)
+        first, end = last + lo_f, min(last + hi_f, end_limit)
+        if first >= end:
+            break
+        in_window = [p for p in pauses if first <= mid(p) <= end]
+        real = [p for p in in_window if p[1] - p[0] >= need]
+        later = [p for p in pauses if end < mid(p) <= min(last + hi_f + extra_f, end_limit)
+                 and p[1] - p[0] >= need]
+        if real:
+            pick, how = max(real, key=lambda p: (p[1] - p[0], -db[p[0]:p[1]].mean())), "pause"
+        elif later:
+            pick, how = later[0], "pause after the window"
+        elif in_window:
+            pick, how = max(in_window, key=lambda p: p[1] - p[0]), "short gap"
+        else:
+            frame = first + int(np.argmin(db[first:end + 1]))
+            pick, how = (frame, frame + 1), "no gap: quietest frame"
+        last = mid(pick)
+        plan.append((last, (pick[1] - pick[0]) / FPS, how))
+    return plan if details else [f for f, _, _ in plan]
 
 
-def reset_chunks(anchor, reset_seconds, new_frames, chunks, per_chunk, mono16):
-    """Every chunk index that starts again from the portrait (chunk 0 not counted)."""
+def refresh_plan(anchor, reset_seconds, new_frames, total, mono16):
+    """Every (frame, pause_seconds, how) where the render starts again from the
+    portrait (frame 0 not counted). Fixed schedules restart on chunk boundaries."""
     if anchor == ANCHOR_PAUSES:
-        return pause_refreshes(mono16, chunks, per_chunk, float(reset_seconds))
+        return pause_refreshes(mono16, total, float(reset_seconds), details=True)
     interval = reset_interval(anchor, reset_seconds, new_frames)
-    return [i for i in range(1, chunks) if resets_before(i, interval)]
+    chunks = max(1, math.ceil(total / new_frames))
+    return [(i * new_frames, 0.0, "schedule") for i in range(1, chunks)
+            if resets_before(i, interval)]
 
 
 def resets_before(chunk, interval):
@@ -276,10 +346,29 @@ def resets_before(chunk, interval):
     return interval > 0 and chunk > 0 and chunk % interval == 0
 
 
-def plan(samples, new_frames):
-    """(chunk count, samples per chunk) for a 16 kHz track of `samples` samples."""
-    per_chunk = new_frames * SAMPLE_RATE // FPS
-    return max(1, math.ceil(samples / per_chunk)), per_chunk
+def schedule(total, new_frames, refreshes=()):
+    """Chunks as (first_frame, frames_kept, starts_from_portrait).
+
+    Each chunk renders new_frames frames. The chunk before a refresh keeps only the
+    frames up to it, so the refresh starts exactly there, in the middle of the pause;
+    the last chunk keeps all its frames (the mux cuts the video to the audio).
+    """
+    bounds = sorted({int(f) for f in refreshes if 0 < f < total})
+    chunks, start, from_portrait = [], 0, False
+    for end in bounds + [total]:
+        while True:
+            keep = new_frames if end == total else min(new_frames, end - start)
+            chunks.append((start, keep, from_portrait))
+            start, from_portrait = start + keep, False
+            if start >= end:
+                break
+        from_portrait = True
+    return chunks
+
+
+def video_frames(samples):
+    """Video frames covering a 16 kHz track of `samples` samples."""
+    return max(1, math.ceil(samples / SAMPLES_PER_FRAME))
 
 
 # ---------------------------------------------------------------------------- output
@@ -347,10 +436,14 @@ def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_pat
     mono = to_mono16(waveform, sample_rate)
     if mono.size == 0:
         raise RuntimeError("The voiceover is empty.")
-    chunks, per_chunk = plan(mono.size, new_frames)
-    padded = np.zeros(chunks * per_chunk, dtype=np.float32)
-    padded[:mono.size] = mono
-    refreshes = set(reset_chunks(anchor, reset_seconds, new_frames, chunks, per_chunk, mono))
+    total = video_frames(mono.size)
+    refreshes = refresh_plan(anchor, reset_seconds, new_frames, total, mono)
+    plan = schedule(total, new_frames, [f for f, _, _ in refreshes])
+    chunks = len(plan)
+    cached = SAMPLE_RATE * CACHED_AUDIO_SECONDS
+    # Zeros before the audio (the rolling window starts silent, as upstream) and after.
+    padded = np.zeros(cached + (plan[-1][0] + new_frames) * SAMPLES_PER_FRAME, np.float32)
+    padded[cached:cached + mono.size] = mono
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     work = tempfile.mkdtemp(prefix="flashhead-", dir=os.path.dirname(os.path.abspath(out_path)))
@@ -365,35 +458,35 @@ def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_pat
             sampling_steps=STEPS, seed=int(seed), shift=SHIFT,
             color_correction_strength=float(color_correction), use_face_crop=False)
 
-        cached = SAMPLE_RATE * CACHED_AUDIO_SECONDS
         end = CACHED_AUDIO_SECONDS * FPS
         start = end - FRAME_NUM
-        window = deque([0.0] * cached, maxlen=cached)
         writer = VideoWriter(os.path.join(work, "video.mp4"))
         chunk_seconds, resets = [], 0
-        where = ", ".join(f"{i * new_frames / FPS:.1f}s" for i in sorted(refreshes))
         log(f"{LOG} {mono.size / SAMPLE_RATE:.1f} s of audio -> {chunks} chunks of "
-            f"{new_frames} frames, anchor: {anchor}"
-            + (f"; restarts from the portrait at {where}" if 0 < len(refreshes) <= 40 else
-               f"; {len(refreshes)} restarts from the portrait" if refreshes else ""))
+            f"up to {new_frames} frames, anchor: {anchor}"
+            + (f", {len(refreshes)} restarts from the portrait" if refreshes else ""))
+        if anchor == ANCHOR_PAUSES:
+            for frame, pause, how in refreshes:
+                log(f"{LOG}   restart at {frame / FPS:.2f} s ({how}, {pause:.2f} s)")
         try:
-            for i in range(chunks):
+            for i, (first, keep, from_portrait) in enumerate(plan):
                 t0 = time.time()
-                if i in refreshes:
+                if from_portrait:
                     pipeline.reset_person_name()
                     resets += 1
-                window.extend(padded[i * per_chunk:(i + 1) * per_chunk].tolist())
-                emb = audio_embedding(pipeline, np.array(window, dtype=np.float32),
+                # The 8 s of audio ending where this chunk's new frames end.
+                stop = cached + (first + new_frames) * SAMPLES_PER_FRAME
+                emb = audio_embedding(pipeline, padded[stop - cached:stop].copy(),
                                       start, end)
                 with contextlib.redirect_stdout(io.StringIO()):  # per-step timings
                     sample = pipeline.generate(emb.to(pipeline.device))
                 frames = (((sample + 1) / 2).permute(1, 2, 3, 0).clip(0, 1) * 255)
                 frames = frames[motion_frames_num:].round().to(torch.uint8).cpu().numpy()
-                writer.write(frames)
+                writer.write(frames[:keep])
                 chunk_seconds.append(time.time() - t0)
                 if i == 0 or (i + 1) % 25 == 0 or i + 1 == chunks:
                     log(f"{LOG} chunk {i + 1}/{chunks} "
-                          f"({(i + 1) * new_frames / FPS:.0f} s of video, "
+                          f"({(first + keep) / FPS:.0f} s of video, "
                           f"{time.time() - started:.0f} s elapsed)")
                 if on_chunk:
                     on_chunk(i, chunks)
@@ -412,7 +505,9 @@ def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_pat
     steady = chunk_seconds[3:] or chunk_seconds
     stats = {
         "output": out_path, "anchor": anchor, "resets": resets,
-        "reset_times_s": [round(i * new_frames / FPS, 2) for i in sorted(refreshes)], "chunks": chunks, "frames_per_chunk": new_frames,
+        "reset_times_s": [round(f / FPS, 2) for f, _, _ in refreshes],
+        "reset_pauses_s": [round(p, 2) for _, p, _ in refreshes],
+        "chunks": chunks, "frames_per_chunk": new_frames,
         "audio_seconds": round(seconds, 3), "render_seconds": round(render_seconds, 2),
         "seconds_per_video_second": round(render_seconds / seconds, 3),
         "steady_chunk_seconds": round(float(np.median(steady)), 3),

@@ -23,7 +23,7 @@ Visibility:               Public (or Private while testing)
 Container image:          runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8
 Registry credentials:     none (public image)
 
-# Same image as the LongCat and FlashHead Lite templates: PyTorch 2.10 (CUDA 12.8), Python 3.12, ComfyUI
+# Same image as the LongCat template: PyTorch 2.10 (CUDA 12.8), Python 3.12, ComfyUI
 # at /workspace/runpod-slim/ComfyUI, its venv .venv-cu128, /start.sh with the
 # JUPYTER_DISABLE_AUTH switch. CUDA 12.8 runs on far more hosts (driver r570+).
 # Image page: https://hub.docker.com/r/runpod/comfyui/tags
@@ -129,8 +129,8 @@ HF_TOKEN=
 
 # Workflows (copied into ComfyUI's Workflows sidebar; edited copies are never overwritten)
 #   flashhead_pro_1_continuous           upstream: every chunk continues the last
-#   flashhead_pro_2_refresh_at_pauses    continuous + restart from the portrait at a
-#                                        pause every 30-40 s (long voiceovers)
+#   flashhead_pro_2_refresh_at_pauses    continuous + restart from the portrait in the
+#                                        middle of a real pause every 20-40 s
 #   flashhead_pro_3_batch_folder_refresh_at_pauses   the same, every voiceover in
 #                                        input/batch_audio/
 

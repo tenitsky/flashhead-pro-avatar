@@ -12,8 +12,8 @@ at roughly 4–6× Lite's cost. Upstream: Pro runs at 10.8 FPS on an RTX 4090 (a
 2.3 s per second of video); Lite at 96 FPS.
 
 Two ways to render: **continuous** (seamless, as upstream), and **refresh at pauses**,
-which also restarts from the portrait at a pause every 30-40 s so a face cannot wander
-over minutes-long voiceovers.
+which also restarts from the portrait every 20-40 s, in the middle of a real pause in
+the speech, so a face cannot wander over minutes-long voiceovers.
 
 ComfyUI has no FlashHead nodes. This repo's small `comfyui-flashhead` pack drives
 upstream's own pipeline code, which setup installs at a pinned commit.
@@ -32,15 +32,27 @@ The **anchor** setting on the Render node controls what a chunk opens on:
 | Anchor | Each chunk opens on | Trade-off |
 |---|---|---|
 | **continuous (upstream)** | the previous chunk's last 5 frames | seamless joins; could drift over long videos |
-| **refresh from portrait at a pause** | continuous, but every 30-40 s the portrait, on the quietest chunk boundary | one small jump at a pause per 30-40 s; drift bounded |
+| **refresh from portrait at a pause** | continuous, but every 20-40 s the portrait, in the middle of a real pause | one small jump in a silence per 20-40 s; drift bounded |
 | reset to portrait every chunk / every N seconds | the portrait on a fixed schedule | for comparison: jumps regardless of the speech |
 
 A reset is upstream's own `reset_person_name()`: the next chunk starts the way the first
-one does. For **refresh at a pause**, `reset_seconds` (30) is the earliest refresh after
-the previous one; the quietest chunk boundary in the following 10 s is used, measured
-on 0.2 s of audio either side, and never in the last 3 s. Chunks are 1.12 s, so the
-refresh lands within about half a second of the quietest moment. The log lists the
-refresh times.
+one does.
+
+For **refresh at a pause**, the refreshes are **planned from the whole voiceover before
+rendering starts**, and only go where the mouth is shut:
+
+1. Every **real pause** is found first: at least **0.4 s** of near-silence, measured
+   against the recording's own speech and noise levels. Short gaps between words do
+   not count.
+2. Each refresh goes **in the middle of the longest real pause** between `reset_seconds`
+   (20) and `reset_seconds` + 20 s after the previous one, never in the last 3 s.
+3. If that window has no real pause, the **next real pause within 20 s** is used rather
+   than cutting into speech. Only when there is none at all does a shorter gap get it.
+
+The chunk before a refresh keeps only its frames up to that point, so the refresh lands
+on the exact frame, not on the nearest 1.12 s chunk boundary. The log lists each refresh
+with its pause length. On the 71 s sample, whose pauses between 20 and 40 s are all
+under 0.4 s, the one refresh lands at 51.2 s, in the middle of a 0.44 s pause.
 
 ### What a first test showed (71 s sample, same seed as Lite)
 
@@ -179,7 +191,7 @@ python /tmp/flashhead-pro-avatar.*/tools/analyze_seams.py output/sample_voiceove
 | Workflow | Anchor | Output suffix |
 |---|---|---|
 | `flashhead_pro_1_continuous` | continuous (upstream) | `_pro_continuous` |
-| `flashhead_pro_2_refresh_at_pauses` | refresh from portrait at a pause, every 30-40 s | `_pro_refresh` |
+| `flashhead_pro_2_refresh_at_pauses` | refresh from portrait in a real pause, every 20-40 s | `_pro_refresh` |
 | `flashhead_pro_3_batch_folder_refresh_at_pauses` | the same, for every voiceover in `input/batch_audio/` | `_pro_refresh` |
 
 Use **1** for short clips and **2** for voiceovers of a minute or more.

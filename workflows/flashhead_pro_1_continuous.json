@@ -25,7 +25,7 @@
    },
    "title": "Start here",
    "widgets_values": [
-    "# FlashHead Pro - Continuous\n\nEvery 1.12 s chunk continues from the previous one's last 5 frames, as upstream does: seamless, with no pose resets. Over the 71 s sample it did not drift.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait.\n2. **Load Voiceover** - opens on the 71 s sample; any length works.\n3. Check the **portrait preview** (stage 2): face crop or whole image.\n4. **Run.** One run renders the whole video and shows it on the Render node.\n\nLong voiceovers (minutes): use workflow 2, which refreshes from the portrait at a pause every 30-40 s.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
+    "# FlashHead Pro - Continuous\n\nEvery 1.12 s chunk continues from the previous one's last 5 frames, as upstream does: seamless, with no pose resets. Over the 71 s sample it did not drift.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait.\n2. **Load Voiceover** - opens on the 71 s sample; any length works.\n3. Check the **portrait preview** (stage 2): face crop or whole image.\n4. **Run.** One run renders the whole video and shows it on the Render node.\n\nLong voiceovers (minutes): use workflow 2, which refreshes from the portrait in the middle of a real pause every 20-40 s.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
    ],
    "color": "#222",
    "bgcolor": "#000"
@@ -373,7 +373,7 @@
    "title": "Render the whole video",
    "widgets_values": [
     "continuous (upstream)",
-    30.0,
+    20.0,
     42,
     "fixed",
     1.0,

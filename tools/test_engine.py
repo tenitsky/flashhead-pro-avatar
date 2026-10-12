@@ -140,33 +140,84 @@ class RenderLoopTests(unittest.TestCase):
                 self.assertEqual(pipe.resets, expected)
                 self.assertEqual(stats["resets"], len(expected))
 
-    def test_refresh_at_pauses_picks_quiet_boundaries_30_to_40_s_apart(self):
-        per_chunk = NEW * 640                        # 1.12 s of 16 kHz audio
-        seconds = 120
-        rng = np.random.default_rng(5)
-        mono = (rng.standard_normal(seconds * 16000) * 0.1).astype(np.float32)
-        quiet = [33, 64, 98]                         # chunk boundaries made silent
-        for c in quiet:
-            mono[c * per_chunk - 4000:c * per_chunk + 4000] *= 0.001
-        chunks = int(np.ceil(mono.size / per_chunk))
-        picks = engine.pause_refreshes(mono, chunks, per_chunk, 30.0)
-        self.assertEqual(picks, quiet)
+    @staticmethod
+    def talk(seconds, pauses, sr=16000, gap_every=2.0, gap=0.2, seed=3):
+        """Speech-like noise with a 0.2 s gap between 'phrases' every 2 s (too short to
+        be a real pause) and the given (start, length) real pauses."""
+        rng = np.random.default_rng(seed)
+        wave = (rng.standard_normal(sr * seconds) * 0.1).astype(np.float32)
+        t = gap_every
+        while t < seconds:
+            wave[int(t * sr):int((t + gap) * sr)] *= 0.001
+            t += gap_every
+        for start, length in pauses:
+            wave[int(start * sr):int((start + length) * sr)] *= 0.001
+        return wave
+
+    def test_refreshes_go_in_the_middle_of_the_longest_real_pause_20_to_40_s_apart(self):
+        self.assertEqual((engine.REFRESH_SECONDS, engine.PAUSE_WINDOW, engine.MIN_PAUSE),
+                         (20.0, 20.0, 0.4))
+        pauses = [(27.1, 0.6), (33.1, 0.9), (70.1, 0.6), (105.1, 0.6)]
+        mono = self.talk(125, pauses)
+        total = 125 * 25
+        plan = engine.pause_refreshes(mono, total, details=True)
+        # The longest real pause in [20, 40] s is the 0.9 s one at 33.1 s, not 27.1 s.
+        self.assertEqual(len(plan), 3)
+        for (frame, _, _), want in zip(plan, (33.55, 70.4, 105.4)):
+            self.assertAlmostEqual(frame / 25, want, delta=0.1)
         last = 0
-        for c in picks:
-            gap = (c - last) * per_chunk / 16000
-            self.assertTrue(30 - 1.12 <= gap <= 40 + 1.12, gap)
-            last = c
-        self.assertLess(picks[-1] * per_chunk / 16000, seconds - engine.REFRESH_TAIL)
-        # The render loop restarts exactly those chunks.
+        for frame, length, how in plan:
+            self.assertEqual(how, "pause")
+            self.assertGreaterEqual(length, 0.4)
+            self.assertTrue(any(a * 25 < frame < (a + l) * 25 for a, l in pauses), frame)
+            self.assertTrue(20 * 25 <= frame - last <= 40 * 25)
+            last = frame
+        self.assertEqual(engine.pause_refreshes(mono[:19 * 16000], 19 * 25), [])
+
+    def test_without_a_real_pause_in_the_window_the_next_one_is_used(self):
+        plan = engine.pause_refreshes(self.talk(90, [(51.0, 0.5)]), 90 * 25, details=True)
+        self.assertEqual(plan[0][2], "pause after the window")
+        self.assertTrue(51.0 * 25 < plan[0][0] < 51.5 * 25)
+        # Speech that never pauses long still gets a refresh, on a short gap.
+        plan = engine.pause_refreshes(self.talk(70, []), 70 * 25, details=True)
+        self.assertTrue(plan and all(how == "short gap" for _, _, how in plan))
+
+    def test_schedule_ends_the_chunk_before_a_refresh_at_the_refresh(self):
+        self.assertEqual(engine.schedule(70, NEW), [(0, NEW, False), (NEW, NEW, False),
+                                                    (2 * NEW, NEW, False)])
+        plan = engine.schedule(100, NEW, [40])
+        self.assertEqual(plan, [(0, NEW, False), (NEW, 40 - NEW, False), (40, NEW, True),
+                                (40 + NEW, NEW, False), (40 + 2 * NEW, NEW, False)])
+        # Kept frames tile the video exactly up to the last chunk.
+        for p in (plan, engine.schedule(1000, NEW, [56, 333, 700])):
+            for (f, k, _), (g, _, _) in zip(p, p[1:]):
+                self.assertEqual(f + k, g)
+
+    def test_refresh_at_pauses_restarts_mid_pause_with_aligned_audio(self):
+        pauses = [(27.1, 0.6), (33.1, 0.9), (70.1, 0.6)]
+        mono = self.talk(80, pauses)
+        expected = [f for f, _, _ in engine.pause_refreshes(mono, 80 * 25, details=True)]
         pipe = FakePipeline()
         wave = torch.from_numpy(np.stack([mono, mono]))
         stats = engine.render(pipe, MOTION, self.portrait, wave, 16000,
                               str(Path(self.dir.name) / "p.mp4"),
-                              anchor=engine.ANCHOR_PAUSES, reset_seconds=30)
-        self.assertEqual(pipe.resets, quiet)
-        self.assertEqual(stats["reset_times_s"], [round(c * NEW / 25, 2) for c in quiet])
-        # Under 30 s: nothing to refresh.
-        self.assertEqual(engine.pause_refreshes(mono[:25 * 16000], 23, per_chunk, 30.0), [])
+                              anchor=engine.ANCHOR_PAUSES, reset_seconds=20)
+        frames = Recorder.instances[-1].frames
+        self.assertEqual(stats["reset_times_s"], [round(f / 25, 2) for f in expected])
+        self.assertTrue(all(p >= 0.4 for p in stats["reset_pauses_s"]))
+        # The chunks that restart are the ones starting on a planned frame.
+        starts = np.cumsum([0] + [len(f) for f in frames])[:-1]
+        self.assertEqual([int(starts[c]) for c in pipe.resets], expected)
+        self.assertEqual(len(frames), stats["chunks"])
+        self.assertGreaterEqual(sum(len(f) for f in frames), 80 * 25)
+        # Every chunk's audio window ends where its new frames end.
+        for start, window in zip(starts, pipe.windows):
+            stop = (start + NEW) * 640
+            got = window[-NEW * 640:]
+            want = np.zeros(NEW * 640, np.float32)
+            have = mono[stop - NEW * 640:stop]
+            want[:have.size] = have
+            np.testing.assert_allclose(got, want, atol=1e-6)
 
     def test_reset_interval(self):
         self.assertEqual(engine.reset_interval(engine.ANCHOR_CONTINUOUS, 10, NEW), 0)

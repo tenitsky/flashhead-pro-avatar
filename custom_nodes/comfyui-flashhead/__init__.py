@@ -9,6 +9,7 @@ setting does.
 """
 
 import json
+import math
 import os
 import re
 
@@ -77,8 +78,10 @@ def _render(flashhead, portrait, waveform, sample_rate, name, anchor, reset_seco
             seed, color_correction):
     pipeline, motion = flashhead
     out = os.path.join(folder_paths.get_output_directory(), name + ".mp4")
-    chunks, _ = engine.plan(engine.to_mono16(waveform, sample_rate).size,
-                            engine.FRAME_NUM - motion)
+    # An estimate for the progress bar; restarts add a chunk each, and every update
+    # carries the real total.
+    chunks = math.ceil(engine.video_frames(engine.to_mono16(waveform, sample_rate).size)
+                       / (engine.FRAME_NUM - motion))
     stats = engine.render(pipeline, motion, _portrait_array(portrait), waveform,
                           sample_rate, out, anchor=anchor, reset_seconds=reset_seconds,
                           seed=seed, color_correction=color_correction,
@@ -98,10 +101,11 @@ def _video_ui(path):
 
 
 ANCHOR_TOOLTIP = ("continuous: every ~1 s chunk continues from the previous one "
-                  "(upstream). refresh at a pause: continuous, but on the quietest chunk "
-                  "boundary 30-40 s after the last refresh (reset_seconds + 10 s) the "
-                  "next chunk starts again from the portrait. reset every chunk / every "
-                  "N seconds: restarts from the portrait on a fixed schedule.")
+                  "(upstream). refresh at a pause: continuous, but once in every 20-40 s "
+                  "(reset_seconds to reset_seconds + 20 s) the render starts again from "
+                  "the portrait in the middle of a real pause (0.4 s+ of silence), "
+                  "planned from the whole voiceover. reset every chunk / every N "
+                  "seconds: restarts from the portrait on a fixed schedule.")
 
 
 class FlashHeadLoader:
@@ -170,10 +174,11 @@ class FlashHeadRender:
                 "audio": ("AUDIO",),
                 "anchor": (engine.ANCHORS, {"tooltip": ANCHOR_TOOLTIP}),
                 "reset_seconds": ("FLOAT", {
-                    "default": 30.0, "min": 1.0, "max": 600.0, "step": 0.5,
+                    "default": 20.0, "min": 1.0, "max": 600.0, "step": 0.5,
                     "tooltip": "Refresh at a pause: earliest refresh after the last one "
-                               "(the quietest boundary in the following 10 s is used). "
-                               "Reset every N seconds: the spacing."}),
+                               "(the longest real pause in the following 20 s is used, "
+                               "or the next one after that). Reset every N seconds: the "
+                               "spacing."}),
                 "seed": ("INT", {"default": 42, "min": 0, "max": 2**31 - 1}),
                 "color_correction": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05,

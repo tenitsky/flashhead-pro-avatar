@@ -406,6 +406,9 @@ mkdir -p "$WF_DEST"
 # removed only while it is byte-identical to that shipped version, so a copy edited on
 # the pod is kept; a current name is then reinstalled at its new version below.
 RETIRED_WORKFLOWS="
+15b44e38f49269b564a5ec323979c6b30fb9018c1ad1521e8df309891dce525b flashhead_pro_1_continuous.json
+ab811dcb25afd6541e0d771e0f9592496f38df21d9ab2f8105629df6c5652364 flashhead_pro_2_refresh_at_pauses.json
+d8e8261cbd36cf363bd9dcfdf61000b227697b6ca67b9aa3ea1e57d124bf90f8 flashhead_pro_3_batch_folder_refresh_at_pauses.json
 "
 while read -r sum name; do
   [ -n "$name" ] && [ -f "$WF_DEST/$name" ] || continue

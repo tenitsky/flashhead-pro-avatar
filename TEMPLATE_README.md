@@ -29,7 +29,7 @@ The video lands in ComfyUI/output; timing goes to output/flashhead_stats/.
 
 ## Long voiceovers
 
-FlashHead renders 1.12 s chunks, each continuing from the previous one. For a minute or more, use workflow **2**: every 30-40 s, at a pause, it restarts from the portrait so the face cannot drift. **3** does the same for every voiceover in input/batch_audio/.
+FlashHead renders 1.12 s chunks, each continuing from the previous one. For a minute or more, use workflow **2**: every 20-40 s, in the middle of a real pause (mouth shut), it restarts from the portrait so the face cannot drift. The cuts are planned from the voiceover up front. **3** does the same for every voiceover in input/batch_audio/.
 
 ## Hardware
 

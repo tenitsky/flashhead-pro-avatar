@@ -25,7 +25,7 @@
    },
    "title": "Start here",
    "widgets_values": [
-    "# FlashHead Pro - Refresh at Pauses (30-40 s)\n\nContinuous, plus a full refresh against drift on long videos: on the quietest chunk boundary 30-40 s after the last refresh, the next chunk starts again from the portrait. A small jump at a pause, in exchange for a face that cannot wander over minutes.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait.\n2. **Load Voiceover** - opens on the 71 s sample; any length works.\n3. Check the **portrait preview** (stage 2): face crop or whole image.\n4. **Run.** One run renders the whole video and shows it on the Render node.\n\nLong voiceovers (minutes): use workflow 2, which refreshes from the portrait at a pause every 30-40 s.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
+    "# FlashHead Pro - Refresh at Pauses (20-40 s)\n\nContinuous, plus a full refresh against drift on long videos: once in every 20-40 s, in the middle of a real pause in the speech (mouth shut), the render starts again from the portrait. The cuts are planned from the whole voiceover before rendering. A small jump in a silence, in exchange for a face that cannot wander over minutes.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait.\n2. **Load Voiceover** - opens on the 71 s sample; any length works.\n3. Check the **portrait preview** (stage 2): face crop or whole image.\n4. **Run.** One run renders the whole video and shows it on the Render node.\n\nLong voiceovers (minutes): use workflow 2, which refreshes from the portrait in the middle of a real pause every 20-40 s.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
    ],
    "color": "#222",
    "bgcolor": "#000"
@@ -129,7 +129,7 @@
    },
    "title": "About stage 4",
    "widgets_values": [
-    "## 4. Render\n\n**anchor: refresh from portrait at a pause**. Continuous, plus a full refresh against drift on long videos: on the quietest chunk boundary 30-40 s after the last refresh, the next chunk starts again from the portrait. A small jump at a pause, in exchange for a face that cannot wander over minutes.\n\nThe video is saved as `output/<audio name>_pro_refresh.mp4`, with your original audio. Timing (seconds of rendering per second of video, first chunk, peak VRAM) goes to `output/flashhead_stats/`.\n\n**color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two renders can be compared on identical noise."
+    "## 4. Render\n\n**anchor: refresh from portrait at a pause**. Continuous, plus a full refresh against drift on long videos: once in every 20-40 s, in the middle of a real pause in the speech (mouth shut), the render starts again from the portrait. The cuts are planned from the whole voiceover before rendering. A small jump in a silence, in exchange for a face that cannot wander over minutes.\n\nThe video is saved as `output/<audio name>_pro_refresh.mp4`, with your original audio. Timing (seconds of rendering per second of video, first chunk, peak VRAM) goes to `output/flashhead_stats/`.\n\n**color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two renders can be compared on identical noise."
    ],
    "color": "#222",
    "bgcolor": "#000"
@@ -373,7 +373,7 @@
    "title": "Render the whole video",
    "widgets_values": [
     "refresh from portrait at a pause",
-    30.0,
+    20.0,
     42,
     "fixed",
     1.0,
