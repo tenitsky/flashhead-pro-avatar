@@ -2,8 +2,10 @@
 FlashHead Pro - SoulX-FlashHead (Soul-AILab, 1.3B) talking heads of any length in
 ComfyUI, with the higher-quality Pro model.
 
-FlashHead renders fast enough that one queue run renders a whole voiceover: the Render node loops over every ~1 s chunk itself and streams the frames to
-ffmpeg. The model code is upstream's, pinned and installed by setup.sh next to this
+FlashHead renders fast enough that one queue run renders a whole voiceover: the Render
+node loops over every ~1 s chunk itself, shows the newest frame on the node as it goes,
+and saves the video in ~30 s parts that can be watched while the rest renders. A
+cancelled run resumes from the last finished part. The model code is upstream's, pinned and installed by setup.sh next to this
 file; engine.py drives it. See engine.py for how chunks join and what the anchor
 setting does.
 """
@@ -41,14 +43,21 @@ def _progress(total):
     except Exception:  # pragma: no cover - outside ComfyUI
         bar = None
 
-    def step(i, n):
+    def step(i, n, frame=None):
         try:
             import comfy.model_management
             comfy.model_management.throw_exception_if_processing_interrupted()
         except ImportError:  # pragma: no cover
             pass
         if bar:
-            bar.update_absolute(i + 1, n)
+            preview = None
+            if frame is not None:  # the newest frame, shown on the node while it runs
+                from PIL import Image
+                preview = ("JPEG", Image.fromarray(frame), engine.SIZE)
+            try:
+                bar.update_absolute(i + 1, n, preview)
+            except Exception:  # pragma: no cover - a preview must never stop a render
+                bar.update_absolute(i + 1, n)
     return step
 
 
@@ -187,7 +196,10 @@ class FlashHeadRender:
                 "name_suffix": ("STRING", {
                     "default": "_pro",
                     "tooltip": "The video is saved as output/<audio name><suffix>.mp4. "
-                               "An existing file of that name is replaced."}),
+                               "An existing file of that name is replaced. While it "
+                               "renders, finished ~30 s parts are playable in "
+                               "output/flashhead_parts/<audio name><suffix>/; re-run "
+                               "after a cancel to resume from the last part."}),
             },
             "hidden": {"prompt": "PROMPT"},
         }

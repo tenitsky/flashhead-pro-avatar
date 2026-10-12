@@ -27,6 +27,12 @@ Jupyter has no login by default; anyone with its URL can run commands. For a log
 
 The video is saved as ComfyUI/output/<audio name>_pro_continuous.mp4. Timing and peak VRAM go to output/flashhead_stats/.
 
+## Watch it as it renders
+
+- The Render node shows the **newest frame** live.
+- The video is saved in **~30 s parts** you can play in JupyterLab while the rest renders: output/flashhead_parts/<name>/part_001.mp4, ...
+- **Cancel** to stop; queue again with the same inputs and it **resumes** after the last finished part.
+
 ## Workflows
 
 1. **Continuous** - every 1.12 s chunk continues from the previous one, as upstream: seamless joins. Best for clips up to a minute.

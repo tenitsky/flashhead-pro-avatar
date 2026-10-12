@@ -30,8 +30,10 @@ one does.
 """
 
 import contextlib
+import hashlib
 import importlib.util
 import io
+import json
 import math
 import os
 import shutil
@@ -457,16 +459,91 @@ def mux(video, wav, out):
         raise RuntimeError(f"ffmpeg failed muxing audio:\n{p.stderr.decode()[-1500:]}")
 
 
+# ---------------------------------------------------------------------------- parts
+# A long render is saved in parts as it goes: each part is a playable mp4 (with its
+# slice of the voiceover) in output/flashhead_parts/<name>/ as soon as it is done, and
+# the state a part ends with is saved next to it, so a cancelled or failed render
+# resumes from the last finished part. The parts are joined into the final video.
+PART_SECONDS = 30.0        # a part ends at the first chunk boundary after this...
+PARTS_DIR = "flashhead_parts"  # ...or where the render restarts from the portrait
+PARTS_VERSION = 1
+
+
+def split_parts(plan, part_seconds=PART_SECONDS):
+    """Chunk indices grouped into parts: a new part starts at every restart from the
+    portrait and at the first chunk boundary after part_seconds of video."""
+    limit = max(1, int(round(part_seconds * FPS)))
+    parts, current, length = [], [], 0
+    for i, (_, keep, from_portrait) in enumerate(plan):
+        if current and (from_portrait or length >= limit):
+            parts.append(current)
+            current, length = [], 0
+        current.append(i)
+        length += keep
+    parts.append(current)
+    return parts
+
+
+def session_key(mono16, portrait, settings):
+    """Identifies a render: the parts of another voiceover, portrait or setting are
+    never reused."""
+    h = hashlib.sha256()
+    h.update(np.ascontiguousarray(mono16, dtype=np.float32).tobytes())
+    h.update(np.ascontiguousarray(portrait).tobytes())
+    h.update(json.dumps(settings, sort_keys=True).encode())
+    return h.hexdigest()[:20]
+
+
+def save_state(pipeline, path):
+    """What the next chunk continues from: upstream keeps exactly the carried motion
+    latents and its random generator between chunks."""
+    tmp = path + ".tmp"
+    torch.save({"motion": pipeline.latent_motion_frames.detach().cpu(),
+                "generator": pipeline.generator.get_state()}, tmp)
+    os.replace(tmp, path)
+
+
+def load_state(pipeline, path):
+    state = torch.load(path, map_location="cpu")
+    current = pipeline.latent_motion_frames
+    pipeline.latent_motion_frames = state["motion"].to(device=current.device,
+                                                       dtype=current.dtype)
+    pipeline.generator.set_state(state["generator"])
+
+
+def concat_videos(paths, out):
+    """Join video-only parts without re-encoding (same encoder settings throughout)."""
+    listing = out + ".txt"
+    with open(listing, "w", encoding="utf-8") as f:
+        for path in paths:
+            f.write("file '" + os.path.abspath(path).replace("'", "'\\''") + "'\n")
+    p = subprocess.run([ffmpeg(), "-y", "-v", "error", "-f", "concat", "-safe", "0",
+                        "-i", listing, "-map", "0:v", "-c", "copy", out],
+                       stderr=subprocess.PIPE)
+    os.remove(listing)
+    if p.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed joining parts:\n{p.stderr.decode()[-1500:]}")
+
+
+def audio_slice(waveform, sample_rate, first_frame, end_frame):
+    wav = waveform[0] if waveform.dim() == 3 else waveform
+    a = int(round(first_frame / FPS * sample_rate))
+    b = int(round(end_frame / FPS * sample_rate))
+    return wav[:, a:b]
+
+
 # ---------------------------------------------------------------------------- render
 @torch.no_grad()
 def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_path,
            anchor=ANCHOR_CONTINUOUS, reset_seconds=10.0, seed=42,
-           color_correction=1.0, on_chunk=None):
+           color_correction=1.0, on_chunk=None, parts_dir=None):
     """Render the whole voiceover to out_path. Returns a stats dict.
 
     portrait: 512 x 512 RGB uint8 array (frame_portrait). waveform: [channels,
-    samples] or [1, channels, samples] float at sample_rate. on_chunk(i, total) is
-    called after every chunk and may raise to cancel.
+    samples] or [1, channels, samples] float at sample_rate. on_chunk(i, total, frame)
+    is called after every chunk with its last frame and may raise to cancel; the
+    finished parts are kept, and the same call later resumes after them. parts_dir
+    defaults to <output folder>/flashhead_parts/<video name>.
     """
     new_frames = FRAME_NUM - motion_frames_num
     mono = to_mono16(waveform, sample_rate)
@@ -475,14 +552,46 @@ def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_pat
     total = video_frames(mono.size)
     refreshes = refresh_plan(anchor, reset_seconds, new_frames, total, mono)
     plan = schedule(total, new_frames, [f for f, _, _ in refreshes])
+    parts = split_parts(plan)
     chunks = len(plan)
     cached = SAMPLE_RATE * CACHED_AUDIO_SECONDS
     # Zeros before the audio (the rolling window starts silent, as upstream) and after.
     padded = np.zeros(cached + (plan[-1][0] + new_frames) * SAMPLES_PER_FRAME, np.float32)
     padded[cached:cached + mono.size] = mono
 
-    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-    work = tempfile.mkdtemp(prefix="flashhead-", dir=os.path.dirname(os.path.abspath(out_path)))
+    out_dir = os.path.dirname(os.path.abspath(out_path))
+    name = os.path.splitext(os.path.basename(out_path))[0]
+    session = parts_dir or os.path.join(out_dir, PARTS_DIR, name)
+    settings = {"version": PARTS_VERSION, "anchor": anchor,
+                "reset_seconds": float(reset_seconds), "seed": int(seed),
+                "color_correction": float(color_correction), "new_frames": new_frames,
+                "part_seconds": PART_SECONDS}
+    key = session_key(mono, portrait, settings)
+    manifest = os.path.join(session, "session.json")
+    try:
+        with open(manifest, encoding="utf-8") as f:
+            same = json.load(f).get("key") == key
+    except (OSError, ValueError):
+        same = False
+    if not same and os.path.isdir(session):
+        shutil.rmtree(session, ignore_errors=True)   # another voiceover or setting
+    os.makedirs(session, exist_ok=True)
+    with open(manifest, "w", encoding="utf-8") as f:
+        json.dump({"key": key, "video": out_path, "parts": len(parts), **settings}, f,
+                  indent=1)
+
+    def part_path(p, kind):
+        return os.path.join(session, f"part_{p + 1:03d}{kind}")
+
+    def finished(p):
+        return all(os.path.exists(part_path(p, k)) for k in ("_video.mp4", ".mp4", ".pt"))
+
+    done = 0
+    while done < len(parts) and finished(done):
+        done += 1
+
+    os.makedirs(out_dir, exist_ok=True)
+    work = tempfile.mkdtemp(prefix="flashhead-", dir=out_dir)
     try:
         from PIL import Image
         portrait_png = os.path.join(work, "portrait.png")
@@ -496,62 +605,89 @@ def render(pipeline, motion_frames_num, portrait, waveform, sample_rate, out_pat
 
         end = CACHED_AUDIO_SECONDS * FPS
         start = end - FRAME_NUM
-        writer = VideoWriter(os.path.join(work, "video.mp4"))
-        chunk_seconds, resets = [], 0
+        chunk_seconds, resets, rendered_frames = [], 0, 0
         log(f"{LOG} {mono.size / SAMPLE_RATE:.1f} s of audio -> {chunks} chunks of "
-            f"up to {new_frames} frames, anchor: {anchor}"
+            f"up to {new_frames} frames in {len(parts)} parts, anchor: {anchor}"
             + (f", {len(refreshes)} restarts from the portrait" if refreshes else ""))
         if anchor == ANCHOR_PAUSES:
             for frame, pause, how in refreshes:
                 log(f"{LOG}   restart at {frame / FPS:.2f} s ({how}, {pause:.2f} s)")
-        try:
-            for i, (first, keep, from_portrait) in enumerate(plan):
-                t0 = time.time()
-                if from_portrait:
-                    pipeline.reset_person_name()
-                    resets += 1
-                # The 8 s of audio ending where this chunk's new frames end.
-                stop = cached + (first + new_frames) * SAMPLES_PER_FRAME
-                emb = audio_embedding(pipeline, padded[stop - cached:stop].copy(),
-                                      start, end)
-                with contextlib.redirect_stdout(io.StringIO()):  # per-step timings
-                    sample = pipeline.generate(emb.to(pipeline.device))
-                frames = (((sample + 1) / 2).permute(1, 2, 3, 0).clip(0, 1) * 255)
-                frames = frames[motion_frames_num:].round().to(torch.uint8).cpu().numpy()
-                writer.write(frames[:keep])
-                chunk_seconds.append(time.time() - t0)
-                if i == 0 or (i + 1) % 25 == 0 or i + 1 == chunks:
-                    log(f"{LOG} chunk {i + 1}/{chunks} "
-                          f"({(first + keep) / FPS:.0f} s of video, "
-                          f"{time.time() - started:.0f} s elapsed)")
-                if on_chunk:
-                    on_chunk(i, chunks)
-        finally:
-            writer.close()
+        log(f"{LOG} parts (playable as each finishes): {session}")
+        if done:
+            load_state(pipeline, part_path(done - 1, ".pt"))
+            log(f"{LOG} resuming after part {done}/{len(parts)} "
+                f"({plan[parts[done - 1][-1]][0] / FPS + plan[parts[done - 1][-1]][1] / FPS:.0f} s "
+                f"of video already rendered)")
+
+        for p in range(done, len(parts)):
+            video_tmp = part_path(p, "_video.tmp.mp4")
+            writer = VideoWriter(video_tmp)
+            try:
+                for i in parts[p]:
+                    first, keep, from_portrait = plan[i]
+                    t0 = time.time()
+                    if from_portrait:
+                        pipeline.reset_person_name()
+                        resets += 1
+                    # The 8 s of audio ending where this chunk's new frames end.
+                    stop = cached + (first + new_frames) * SAMPLES_PER_FRAME
+                    emb = audio_embedding(pipeline, padded[stop - cached:stop].copy(),
+                                          start, end)
+                    with contextlib.redirect_stdout(io.StringIO()):  # per-step timings
+                        sample = pipeline.generate(emb.to(pipeline.device))
+                    frames = (((sample + 1) / 2).permute(1, 2, 3, 0).clip(0, 1) * 255)
+                    frames = frames[motion_frames_num:].round().to(torch.uint8).cpu().numpy()
+                    writer.write(frames[:keep])
+                    rendered_frames += keep
+                    chunk_seconds.append(time.time() - t0)
+                    if i == 0 or (i + 1) % 25 == 0 or i + 1 == chunks:
+                        log(f"{LOG} chunk {i + 1}/{chunks} "
+                            f"({(first + keep) / FPS:.0f} s of video, "
+                            f"{time.time() - started:.0f} s elapsed)")
+                    if on_chunk:
+                        on_chunk(i, chunks, frames[keep - 1])
+            finally:
+                writer.close()
+            os.replace(video_tmp, part_path(p, "_video.mp4"))
+            a = plan[parts[p][0]][0]
+            b = plan[parts[p][-1]][0] + plan[parts[p][-1]][1]
+            wav = os.path.join(work, "part.wav")
+            write_wav(audio_slice(waveform, sample_rate, a, b), sample_rate, wav)
+            mux(part_path(p, "_video.mp4"), wav, part_path(p, ".tmp.mp4"))
+            os.replace(part_path(p, ".tmp.mp4"), part_path(p, ".mp4"))
+            save_state(pipeline, part_path(p, ".pt"))
+            log(f"{LOG} part {p + 1}/{len(parts)} ready ({a / FPS:.0f}-{b / FPS:.0f} s): "
+                f"{part_path(p, '.mp4')}")
         render_seconds = time.time() - started
 
+        video = os.path.join(work, "video.mp4")
+        concat_videos([part_path(p, "_video.mp4") for p in range(len(parts))], video)
         wav = os.path.join(work, "audio.wav")
         write_wav(waveform, sample_rate, wav)
-        mux(os.path.join(work, "video.mp4"), wav, out_path)
+        mux(video, wav, out_path)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    shutil.rmtree(session, ignore_errors=True)   # the final video holds all of it
 
     seconds = mono.size / SAMPLE_RATE
+    rendered = rendered_frames / FPS
     # The first chunks include torch.compile's warm-up; steady state excludes them.
-    steady = chunk_seconds[3:] or chunk_seconds
+    steady = chunk_seconds[3:] or chunk_seconds or [0.0]
     stats = {
         "output": out_path, "anchor": anchor, "resets": resets,
         "reset_times_s": [round(f / FPS, 2) for f, _, _ in refreshes],
         "reset_pauses_s": [round(p, 2) for _, p, _ in refreshes],
-        "chunks": chunks, "frames_per_chunk": new_frames,
+        "chunks": chunks, "frames_per_chunk": new_frames, "parts": len(parts),
+        "resumed_after_parts": done, "rendered_chunks": len(chunk_seconds),
         "audio_seconds": round(seconds, 3), "render_seconds": round(render_seconds, 2),
-        "seconds_per_video_second": round(render_seconds / seconds, 3),
+        "seconds_per_video_second": round(render_seconds / max(rendered, 1e-9), 3),
         "steady_chunk_seconds": round(float(np.median(steady)), 3),
         "steady_seconds_per_video_second": round(
             float(np.median(steady)) / (new_frames / FPS), 3),
-        "first_chunk_seconds": round(chunk_seconds[0], 2),
+        "first_chunk_seconds": round(chunk_seconds[0], 2) if chunk_seconds else None,
     }
-    log(f"{LOG} {seconds:.1f} s of video in {render_seconds:.1f} s "
-          f"({stats['seconds_per_video_second']:.2f} s per video second; steady state "
-          f"{stats['steady_seconds_per_video_second']:.2f}) -> {out_path}")
+    log(f"{LOG} {seconds:.1f} s of video ({rendered:.1f} s rendered this run) in "
+        f"{render_seconds:.1f} s ({stats['seconds_per_video_second']:.2f} s per video "
+        f"second; steady state {stats['steady_seconds_per_video_second']:.2f}) "
+        f"-> {out_path}")
     return stats

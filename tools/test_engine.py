@@ -37,10 +37,14 @@ class FakePipeline:
         self.prepared, self.windows, self.resets, self.chunk = None, [], [], 0
 
     def prepare_params(self, **kwargs):
+        # Upstream's state between chunks: a seeded generator and the motion latents.
         self.prepared = kwargs
+        self.generator = torch.Generator().manual_seed(kwargs["seed"])
+        self.latent_motion_frames = torch.zeros(1)
 
     def reset_person_name(self, person_name=None):
         self.resets.append(self.chunk)
+        self.latent_motion_frames = torch.zeros(1)
 
     def preprocess_audio(self, speech_array, sr=16000, fps=25):
         self.windows.append(np.asarray(speech_array).copy())
@@ -54,6 +58,18 @@ class FakePipeline:
         return torch.full((3, engine.FRAME_NUM, 8, 8), value)
 
 
+class StatefulPipeline(FakePipeline):
+    """Frames that depend only on upstream's carried state (motion latents and the
+    generator), as the real model's do: a resumed render must reproduce them."""
+
+    def generate(self, audio_embedding):
+        self.chunk += 1
+        noise = torch.rand(3, engine.FRAME_NUM, 8, 8, generator=self.generator)
+        video = (noise + self.latent_motion_frames) % 1 * 2 - 1
+        self.latent_motion_frames = video[:, -1:].mean().reshape(1)
+        return video
+
+
 class Recorder:
     instances = []
 
@@ -64,16 +80,29 @@ class Recorder:
     def write(self, frames):
         self.frames.append(frames)
 
-    def close(self):
-        pass
+    def close(self):  # the frames, as a file standing in for the mp4
+        with open(self.path, "wb") as f:
+            np.save(f, np.concatenate(self.frames) if self.frames
+                    else np.zeros((0, 8, 8, 3), np.uint8))
+
+
+def load_video(path):
+    with open(path, "rb") as f:
+        return np.load(f)
+
+
+def fake_concat(paths, out):
+    with open(out, "wb") as f:
+        np.save(f, np.concatenate([load_video(p) for p in paths]))
 
 
 class RenderLoopTests(unittest.TestCase):
     def setUp(self):
-        self.real = engine.VideoWriter, engine.write_wav, engine.mux
+        self.real = engine.VideoWriter, engine.write_wav, engine.mux, engine.concat_videos
         engine.VideoWriter = Recorder
         engine.write_wav = lambda *a, **k: None
-        engine.mux = lambda *a, **k: None
+        engine.mux = lambda video, wav, out: shutil.copyfile(video, out)
+        engine.concat_videos = fake_concat
         Recorder.instances.clear()
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
@@ -81,17 +110,22 @@ class RenderLoopTests(unittest.TestCase):
         self.portrait = np.zeros((512, 512, 3), np.uint8)
 
     def restore(self):
-        engine.VideoWriter, engine.write_wav, engine.mux = self.real
+        engine.VideoWriter, engine.write_wav, engine.mux, engine.concat_videos = self.real
 
     def run_render(self, seconds, anchor=engine.ANCHOR_CONTINUOUS, reset_seconds=10.0,
                    sample_rate=48000):
+        Recorder.instances.clear()
         pipe = FakePipeline()
         t = torch.arange(int(seconds * sample_rate)) / sample_rate
         wave = torch.stack([torch.sin(2 * np.pi * 220 * t)] * 2) * 0.3
         stats = engine.render(pipe, MOTION, self.portrait, wave, sample_rate,
                               str(Path(self.dir.name) / "out.mp4"), anchor=anchor,
                               reset_seconds=reset_seconds, seed=7, color_correction=0.5)
-        return pipe, stats, Recorder.instances[-1].frames
+        return pipe, stats, self.chunk_frames()
+
+    @staticmethod
+    def chunk_frames():
+        return [f for r in Recorder.instances for f in r.frames]
 
     def test_upstream_settings_reach_the_pipeline(self):
         pipe, _, _ = self.run_render(2)
@@ -202,7 +236,7 @@ class RenderLoopTests(unittest.TestCase):
         stats = engine.render(pipe, MOTION, self.portrait, wave, 16000,
                               str(Path(self.dir.name) / "p.mp4"),
                               anchor=engine.ANCHOR_PAUSES, reset_seconds=20)
-        frames = Recorder.instances[-1].frames
+        frames = self.chunk_frames()
         self.assertEqual(stats["reset_times_s"], [round(f / 25, 2) for f in expected])
         self.assertTrue(all(p >= 0.4 for p in stats["reset_pauses_s"]))
         # The chunks that restart are the ones starting on a planned frame.
@@ -218,6 +252,89 @@ class RenderLoopTests(unittest.TestCase):
             have = mono[stop - NEW * 640:stop]
             want[:have.size] = have
             np.testing.assert_allclose(got, want, atol=1e-6)
+
+    def test_parts_end_at_restarts_and_after_30_s(self):
+        plan = engine.schedule(4000, NEW, [900, 1400])
+        parts = engine.split_parts(plan)
+        self.assertEqual(sorted(i for p in parts for i in p), list(range(len(plan))))
+        for part in parts:
+            frames = sum(plan[i][1] for i in part)
+            self.assertLessEqual(frames, 30 * 25 + NEW)
+            # Only a part's first chunk may start from the portrait.
+            self.assertFalse(any(plan[i][2] for i in part[1:]))
+        starts = [plan[p[0]][0] for p in parts]
+        self.assertIn(900, starts)
+        self.assertIn(1400, starts)
+
+    def render_to(self, pipe, wave, out, **kwargs):
+        Recorder.instances.clear()
+        return engine.render(pipe, MOTION, self.portrait, wave, 16000, out, seed=7,
+                             **kwargs)
+
+    def test_parts_are_playable_during_the_render_and_removed_after(self):
+        wave = torch.from_numpy(np.stack([self.talk(70, [])] * 2))
+        out = str(Path(self.dir.name) / "v.mp4")
+        session = Path(self.dir.name) / engine.PARTS_DIR / "v"
+        seen, previews = [], []
+
+        def on_chunk(i, n, frame):
+            seen.append(sorted(f.name for f in session.glob("part_*[0-9].mp4")))
+            previews.append(frame)
+        stats = self.render_to(StatefulPipeline(), wave, out, on_chunk=on_chunk)
+        self.assertEqual(stats["parts"], 3)                 # 70 s in ~30 s parts
+        self.assertEqual(seen[0], [])
+        self.assertEqual(seen[-1], ["part_001.mp4", "part_002.mp4"])
+        self.assertFalse(session.exists())
+        video = load_video(out)
+        self.assertGreaterEqual(len(video), 70 * 25)
+        # The live preview is the last frame of every chunk.
+        ends = np.cumsum([len(f) for f in self.chunk_frames()]) - 1
+        self.assertTrue(all(np.array_equal(p, video[e]) for p, e in zip(previews, ends)))
+
+    def test_a_cancelled_render_resumes_after_the_last_finished_part(self):
+        for tag, anchor in (("c", engine.ANCHOR_CONTINUOUS), ("p", engine.ANCHOR_PAUSES)):
+            with self.subTest(anchor=anchor):
+                wave = torch.from_numpy(np.stack(
+                    [self.talk(100, [(27.1, 0.6), (60.1, 0.6)])] * 2))
+                whole = str(Path(self.dir.name) / f"whole_{tag}.mp4")
+                self.render_to(StatefulPipeline(), wave, whole, anchor=anchor,
+                               reset_seconds=20)
+
+                out = str(Path(self.dir.name) / f"cut_{tag}.mp4")
+                first = StatefulPipeline()
+
+                def cancel(i, n, frame):
+                    if i == 60:
+                        raise KeyboardInterrupt("cancelled")
+                with self.assertRaises(KeyboardInterrupt):
+                    self.render_to(first, wave, out, anchor=anchor, reset_seconds=20,
+                                   on_chunk=cancel)
+                session = Path(self.dir.name) / engine.PARTS_DIR / f"cut_{tag}"
+                kept = sorted(f.name for f in session.glob("part_*[0-9].mp4"))
+                self.assertGreaterEqual(len(kept), 2)
+                self.assertFalse(Path(out).exists())
+
+                second = StatefulPipeline()
+                stats = self.render_to(second, wave, out, anchor=anchor, reset_seconds=20)
+                self.assertEqual(stats["resumed_after_parts"], len(kept))
+                self.assertLess(second.chunk, stats["chunks"] - 40)
+                # Identical to the render that was never interrupted.
+                np.testing.assert_array_equal(load_video(out), load_video(whole))
+                self.assertFalse(session.exists())
+
+    def test_parts_of_another_setting_are_not_reused(self):
+        wave = torch.from_numpy(np.stack([self.talk(70, [])] * 2))
+        out = str(Path(self.dir.name) / "s.mp4")
+
+        def cancel(i, n, frame):
+            if i == 40:
+                raise KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt):
+            self.render_to(StatefulPipeline(), wave, out, on_chunk=cancel)
+        pipe = StatefulPipeline()
+        stats = engine.render(pipe, MOTION, self.portrait, wave, 16000, out, seed=8)
+        self.assertEqual(stats["resumed_after_parts"], 0)
+        self.assertEqual(pipe.chunk, stats["chunks"])
 
     def test_reset_interval(self):
         self.assertEqual(engine.reset_interval(engine.ANCHOR_CONTINUOUS, 10, NEW), 0)
@@ -314,6 +431,23 @@ class OutputTests(unittest.TestCase):
             self.assertIn("codec_type=audio", probe)
             duration = float(probe.split("duration=")[1].split()[0])
             self.assertAlmostEqual(duration, 2.5, delta=0.1)
+
+    def test_parts_join_frame_exact(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            paths = []
+            for i, n in enumerate((NEW * 3, 17, NEW * 2)):
+                path = str(Path(d) / f"p{i}.mp4")
+                writer = engine.VideoWriter(path)
+                writer.write(np.full((n, 512, 512, 3), 40 * i, np.uint8))
+                writer.close()
+                paths.append(path)
+            engine.concat_videos(paths, str(Path(d) / "all.mp4"))
+            count = subprocess.run(
+                ["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+                 "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0",
+                 str(Path(d) / "all.mp4")], capture_output=True, text=True).stdout
+            self.assertEqual(int(count.strip()), NEW * 5 + 17)
 
 
 if __name__ == "__main__":

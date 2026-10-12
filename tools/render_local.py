@@ -78,7 +78,7 @@ def main():
     stats = engine.render(pipeline, motion, portrait, waveform, sr, args.out,
                           anchor=ANCHORS[args.anchor], reset_seconds=args.reset_seconds,
                           seed=args.seed, color_correction=args.color_correction,
-                          on_chunk=lambda i, n: print(f"  chunk {i + 1}/{n}", end="\r"))
+                          on_chunk=lambda i, n, frame=None: print(f"  chunk {i + 1}/{n}", end="\r"))
     stats["gpu"] = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
     stats["peak_vram_gb"] = round(torch.cuda.max_memory_allocated() / 2**30, 2) \
         if torch.cuda.is_available() else None

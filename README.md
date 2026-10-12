@@ -170,7 +170,8 @@ complete!`**.
    the picture instead (shoulders and background, smaller face). `face_ratio` widens
    the face crop.
 4. **Run.** One run renders the whole voiceover; the first run also loads the model and,
-   with `compile` on, spends a minute or two warming up.
+   with `compile` on, spends a minute or two warming up. The Render node shows the
+   newest frame as it renders, and finished parts are playable straight away (below).
 5. The video is saved as `output/<audio name><suffix>.mp4` and shown on the Render node.
    Timing (seconds of rendering per second of video, first chunk, peak VRAM) goes to
    `output/flashhead_stats/<name>.json`.
@@ -185,6 +186,26 @@ python /tmp/flashhead-pro-avatar.*/tools/analyze_seams.py output/sample_voiceove
 > `setup.sh` skips existing workflows, so a workflow you edited on the pod is never
 > overwritten on reboot. A file still identical to a version this repo shipped earlier
 > is replaced with the current version; edited copies are kept.
+
+### Watching a long render, and resuming it
+
+A 20-minute voiceover is one run, but you don't have to wait for the end to see it:
+
+- **Live frame.** The Render node shows the newest frame after every 1.12 s chunk.
+- **Parts.** The video is saved in **~30 s parts** as it renders, each a playable mp4
+  with its slice of the voiceover:
+  `output/flashhead_parts/<audio name><suffix>/part_001.mp4`, `part_002.mp4`, … Open
+  them in JupyterLab (port 8888) while the rest renders. A part ends at the first chunk
+  boundary after 30 s, or where the render restarts from the portrait.
+- **Resume.** Next to each part, the state the next chunk continues from is saved
+  (upstream's carried motion latents and random generator). If you cancel the run, or
+  the pod stops, queue it again with the same inputs: it picks up after the last
+  finished part and the result is identical to an uninterrupted render. Another
+  voiceover, portrait, seed or anchor starts fresh.
+- When every part is done they are joined without re-encoding, the original audio is
+  laid over the whole video, and the parts folder is removed.
+
+ComfyUI has no pause button: **cancel** is the pause, and queueing again resumes.
 
 ### Workflows
 
@@ -238,7 +259,9 @@ Verified: FlashHead Pro rendering the full 71 s sample (continuous, face crop) o
 local RTX 3080 Laptop GPU (PyTorch 2.10 cu128, diffusers 0.36.0, OpenCV 5.0), through
 the same engine the nodes use, with the seam and drift measurements above; the shipped
 Pro workflow run in ComfyUI v0.35.0; the Wan 2.1 VAE checkpoint's format check. On CPU in CI: the
-chunk plan, audio windows and reset schedule against a recording fake pipeline; the face
+chunk plan, audio windows and reset schedule against a recording fake pipeline; the
+parts, the live preview and a cancelled render resuming to an identical video; joining
+parts frame-exact with ffmpeg; the face
 crop on the sample; the stand-ins; the ffmpeg output; that the pinned upstream commit
 still has the API, settings and reset the engine relies on; the workflows against the
 nodes' schemas; and a full first boot and reboot of `setup.sh` against an offline image
