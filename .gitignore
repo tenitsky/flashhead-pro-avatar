@@ -1,0 +1,17 @@
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local experimentation
+__pycache__/
+*.pyc
+/backup/
+
+# Secrets - never commit
+*.env
+token.txt
+*_token*
+
+# Installed by setup.sh on the pod, never committed
+custom_nodes/comfyui-flashhead/SoulX-FlashHead/

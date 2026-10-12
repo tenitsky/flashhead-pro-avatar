@@ -1,0 +1,170 @@
+################################################################################
+#  FlashHead Pro Avatar - RunPod template setup sheet
+#  Fill in RunPod > Templates > New Template with the values below.
+#  Console: https://console.runpod.io/user/templates
+#  Source of truth: README.md "RunPod public template settings" section.
+################################################################################
+
+
+# ------------------------------------------------------------------------------
+# 1. BASIC INFO
+# ------------------------------------------------------------------------------
+
+Template name:            FlashHead Pro Avatar - ComfyUI + JupyterLab
+Template type:            Pod
+Compute type:             NVIDIA / GPU
+Visibility:               Public (or Private while testing)
+
+
+# ------------------------------------------------------------------------------
+# 2. CONTAINER IMAGE
+# ------------------------------------------------------------------------------
+
+Container image:          runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8
+Registry credentials:     none (public image)
+
+# Same image as the LongCat and FlashHead Lite templates: PyTorch 2.10 (CUDA 12.8), Python 3.12, ComfyUI
+# at /workspace/runpod-slim/ComfyUI, its venv .venv-cu128, /start.sh with the
+# JUPYTER_DISABLE_AUTH switch. CUDA 12.8 runs on far more hosts (driver r570+).
+# Image page: https://hub.docker.com/r/runpod/comfyui/tags
+
+
+# ------------------------------------------------------------------------------
+# 3. CONTAINER START COMMAND
+# ------------------------------------------------------------------------------
+# Paste the contents of runpod-start.json into the "Container Start Command" field
+# (the readable version is bootstrap.sh).
+# What it does: checks DNS for github.com + huggingface.co (falls back to
+# 1.1.1.1 / 8.8.8.8 if needed), clones this repo (10 retries), runs setup.sh.
+# setup.sh installs everything, downloads the models and finally runs /start.sh.
+# Raw file: https://raw.githubusercontent.com/tenitsky/flashhead-pro-avatar/main/runpod-start.json
+
+
+# ------------------------------------------------------------------------------
+# 4. STORAGE
+# ------------------------------------------------------------------------------
+
+Container disk:           5 GB     # disposable system files only
+Volume disk:              0 GB     # do NOT use a pod-local volume disk
+Volume mount path:        /workspace
+
+# At deploy time, each user attaches their OWN Network Volume at /workspace.
+# Recommended size: 50 GB (models ~6.9 GB, plus ComfyUI, venv, renders).
+# setup.sh refuses to run if /workspace is the container disk or a Global Volume.
+# To replace a pod later: deploy in the same datacenter, attach the same volume.
+# Storage types: https://docs.runpod.io/pods/storage/types
+
+
+# ------------------------------------------------------------------------------
+# 5. PORTS
+# ------------------------------------------------------------------------------
+
+Expose HTTP ports:        8188,8888
+Expose TCP ports:         (none)   # add 22 only if you want SSH
+
+#   8188  ComfyUI       main UI; workflows are in the Workflows sidebar
+#   8888  JupyterLab    file uploads (e.g. ComfyUI/input/batch_audio/), terminal
+#   8080  FileBrowser   OPTIONAL: the image runs it (user admin), but the template
+#                       does not expose it. If you add 8080 to the HTTP ports,
+#                       also set FILEBROWSER_PASSWORD (default is adminadmin12).
+
+
+# ------------------------------------------------------------------------------
+# 6. ENVIRONMENT VARIABLES
+# ------------------------------------------------------------------------------
+# Put these in the template:
+
+JUPYTER_NO_AUTH=1
+# 1 = Jupyter with no login (anyone with the URL gets a shell).
+# For a login: JUPYTER_NO_AUTH=0 AND JUPYTER_PASSWORD=<token>.
+
+HF_TOKEN=
+# Optional. Both model repos are ungated; a token only raises HF rate limits.
+# Better as a RunPod secret:  HF_TOKEN={{ RUNPOD_SECRET_hf_token }}
+
+# Optional, normally left out of the template:
+#   JUPYTER_PASSWORD=          Jupyter token when JUPYTER_NO_AUTH=0
+#   FLASHHEAD_REF=             test a newer SoulX-FlashHead commit (engine built on the pin)
+#   FILEBROWSER_PASSWORD=      only if port 8080 is exposed
+#   HF_HOME=                   default /workspace/.cache/huggingface
+#
+# Never set COMFYUI_PATH: the image starts ComfyUI at /workspace/runpod-slim/ComfyUI.
+
+
+# ------------------------------------------------------------------------------
+# 7. README TAB
+# ------------------------------------------------------------------------------
+# Paste the contents of TEMPLATE_README.md into the template's README field
+# (kept under 2,000 characters).
+
+
+# ------------------------------------------------------------------------------
+# 8. WHAT GETS LOADED ON FIRST BOOT (automatic, ~6.9 GB)
+# ------------------------------------------------------------------------------
+# Nothing to do by hand; listed so you can follow the logs.
+
+# Custom nodes
+#   comfyui-flashhead (bundled in this repo, custom_nodes/)
+#   SoulX-FlashHead code, pinned to 9bc03de06bb0de82cd6bc477804512ae06144bf2,
+#   installed inside it:
+#     https://github.com/Soul-AILab/SoulX-FlashHead
+#     https://github.com/Soul-AILab/SoulX-FlashHead/tree/9bc03de06bb0de82cd6bc477804512ae06144bf2
+#   Python packages added to ComfyUI's venv: diffusers==0.36.0, loguru, pyloudnorm,
+#   einops, safetensors (PyTorch stays the image's).
+
+# Models, under ComfyUI/models/flashhead/
+#   SoulX-FlashHead-1_3B/Model_Pro/diffusion_pytorch_model.safetensors      ~6.0 GB
+#     https://huggingface.co/Soul-AILab/SoulX-FlashHead-1_3B/resolve/main/Model_Pro/diffusion_pytorch_model.safetensors
+#   SoulX-FlashHead-1_3B/VAE_Wan/Wan2.1_VAE.pth                             ~0.5 GB
+#     https://huggingface.co/Soul-AILab/SoulX-FlashHead-1_3B/resolve/main/VAE_Wan/Wan2.1_VAE.pth
+#   wav2vec2-base-960h/model.safetensors                                    ~0.4 GB
+#     https://huggingface.co/facebook/wav2vec2-base-960h/resolve/main/model.safetensors
+#   (plus their config.json / preprocessor_config.json)
+# Licences: all Apache-2.0 (FlashHead DiT, Wan 2.1 VAE, wav2vec2).
+
+# Samples (copied into ComfyUI/input/, never over an existing file): every workflow
+# opens on them, so the first run needs no uploads.
+#   sample_portrait.png      2048 x 2048 portrait
+#   sample_voiceover.mp3     71 s voiceover (64 chunks of 1.12 s)
+
+# Workflows (copied into ComfyUI's Workflows sidebar; edited copies are never overwritten)
+#   flashhead_pro_1_continuous           upstream: every chunk continues the last
+#   flashhead_pro_2_reset_every_chunk    every chunk restarts from the portrait
+#   flashhead_pro_3_reset_every_10s      restart from the portrait every 10 s
+#   flashhead_pro_4_batch_folder         continuous, every voiceover in input/batch_audio/
+
+
+# ------------------------------------------------------------------------------
+# 9. GPU
+# ------------------------------------------------------------------------------
+# Upstream: Pro renders 10.8 FPS on one RTX 4090 (~2.3 s per second of video); real
+# time on two RTX 5090s. RTX 4090 or 5090 pod recommended; give it 12 GB+ of VRAM
+# (6.2 GB allocated in testing, but an 8 GB GPU ran out of room and slowed badly).
+
+
+# ------------------------------------------------------------------------------
+# 10. FIRST-BOOT LOG CHECKLIST
+# ------------------------------------------------------------------------------
+#   "Network Volume workspace ready at /workspace"
+#   "GPU: <name>"                    (FATAL here = host driver too old; redeploy elsewhere)
+#   "SoulX-FlashHead: 9bc03de"
+#   model downloads ... "done."
+#   "Setup complete! Handing over to start script..."
+# A failed download stops setup; restart the pod and finished files are skipped.
+# First render: "[FlashHead] pro model loaded", then a chunk count and the timing.
+
+
+# ------------------------------------------------------------------------------
+# 11. LINKS
+# ------------------------------------------------------------------------------
+# This template repo:        https://github.com/tenitsky/flashhead-pro-avatar
+# Lite version:              https://github.com/tenitsky/flashhead-avatar
+# Start command (raw JSON):  https://raw.githubusercontent.com/tenitsky/flashhead-pro-avatar/main/runpod-start.json
+# Base image:                https://hub.docker.com/r/runpod/comfyui/tags
+# FlashHead code:            https://github.com/Soul-AILab/SoulX-FlashHead
+# FlashHead weights:         https://huggingface.co/Soul-AILab/SoulX-FlashHead-1_3B
+# Technical report:          https://arxiv.org/pdf/2602.07449
+# wav2vec2 audio encoder:    https://huggingface.co/facebook/wav2vec2-base-960h
+# YuNet face detector:       https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet
+# RunPod templates console:  https://console.runpod.io/user/templates
+# RunPod storage docs:       https://docs.runpod.io/pods/storage/types
