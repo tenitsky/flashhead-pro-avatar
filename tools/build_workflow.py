@@ -72,9 +72,9 @@ WORKFLOWS = [
 # ------------------------------------------------------------------------ notes
 NOTE_ABOUT = """## About SoulX-FlashHead
 
-Soul-AILab's 1.3B audio-driven talking-head model (Apache-2.0, including the Wan 2.1 VAE). **Pro** is the higher-quality variant: the same 512 x 512 at 25 fps as Lite, but decoded with the Wan 2.1 VAE instead of Lite's much more compressed LTX VAE. Upstream: 10.8 FPS on one RTX 4090, about 2.3 s per second of video.
+Soul-AILab's 1.3B audio-driven talking-head model (Apache-2.0, including the Wan 2.1 VAE). **Pro** is its higher-quality model: 512 x 512 at 25 fps, decoded with the Wan 2.1 VAE for sharp detail. Upstream: 10.8 FPS on one RTX 4090, about 2.3 s per second of video.
 
-It generates **33-frame chunks**. Each chunk opens on the previous chunk's last **5 frames** and adds **28 new ones** (1.12 s), with the portrait as identity reference throughout. That is video continuation, like LongCat, not H3's independent chunks.
+It generates **33-frame chunks**. Each chunk opens on the previous chunk's last **5 frames** and adds **28 new ones** (1.12 s), with the portrait as identity reference throughout, so the video flows on from chunk to chunk.
 
 One run renders the whole voiceover; there is nothing to queue chunk by chunk.
 
@@ -123,8 +123,6 @@ def note_start(w, v):
 {audio}
 3. Choose the **framing** (stage 2): face crop or whole image.
 4. **Run.** One run renders the whole video and shows it on the Render node.
-
-Long voiceovers (minutes): use workflow 2, which refreshes from the portrait in the middle of a real pause every 20-40 s.
 
 Full instructions: https://github.com/tenitsky/flashhead-pro-avatar"""
 

@@ -159,5 +159,24 @@ class WorkflowTests(unittest.TestCase):
                     self.assertTrue(group["title"][0].isdigit())
 
 
+class StandaloneNotesTests(unittest.TestCase):
+    """Every workflow stands alone: its notes and titles never mention another model,
+    template or workflow."""
+
+    def test_no_cross_references(self):
+        pattern = re.compile(r"\b(LongCat|Qwen|H3|MiniMax|InfiniteTalk|Lite)\b|\bworkflows? [0-9]|"
+                             r"other (workflow|template)|avatar templates", re.I)
+        for path in sorted((ROOT / "workflows").glob("*.json")):
+            wf = json.loads(path.read_text(encoding="utf-8"))
+            for node in wf["nodes"]:
+                texts = [node.get("title") or ""]
+                if node["type"] == "MarkdownNote":
+                    texts += [v for v in node.get("widgets_values", []) if isinstance(v, str)]
+                for text in texts:
+                    hit = pattern.search(text)
+                    self.assertIsNone(hit, f"{path.name} node {node['id']}: "
+                                      f"{hit and hit.group(0)}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
