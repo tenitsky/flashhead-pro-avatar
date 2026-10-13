@@ -2,7 +2,7 @@
  "id": "dfdf123e-332c-4d51-ab51-1cd70e7aff1c",
  "revision": 0,
  "last_node_id": 40,
- "last_link_id": 3,
+ "last_link_id": 2,
  "nodes": [
   {
    "id": 1,
@@ -25,7 +25,7 @@
    },
    "title": "Start here",
    "widgets_values": [
-    "# FlashHead Pro - Continuous - Batch Folder\n\nEvery 1.12 s chunk continues from the previous one's last 5 frames, as upstream does: seamless, never reset to the portrait. Over the 71 s sample it did not drift.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait.\n2. Put voiceovers in `ComfyUI/input/batch_audio/` (Jupyter, port 8888). Files already rendered are skipped.\n3. Choose the **framing** (stage 2): face crop or whole image.\n4. **Run.** One run renders the whole video and shows it on the Render node.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
+    "# FlashHead Pro - Continuous - Batch Folder\n\nEvery 1.12 s chunk continues from the previous one's last 5 frames, as upstream does: seamless, never reset to the portrait. Over the 71 s sample it did not drift.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait; any portrait works, the face is found and framed automatically.\n2. Put voiceovers in `ComfyUI/input/batch_audio/` (Jupyter, port 8888). Files already rendered are skipped.\n3. **Run.** One run renders the whole video and shows it on the Render node.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
    ],
    "color": "#222",
    "bgcolor": "#000"
@@ -57,7 +57,7 @@
    "bgcolor": "#000"
   },
   {
-   "id": 4,
+   "id": 5,
    "type": "MarkdownNote",
    "pos": [
     1320,
@@ -65,7 +65,7 @@
    ],
    "size": [
     520,
-    380
+    320
    ],
    "flags": {},
    "order": 2,
@@ -77,21 +77,21 @@
    },
    "title": "About stage 2",
    "widgets_values": [
-    "## 2. Portrait\n\nFlashHead was trained on **512 x 512 face crops**. **face crop** frames a square twice the face width around the face (upstream's framing, found with OpenCV). **whole image** center-crops the picture instead, keeping shoulders and background but making the face small.\n\n`face_ratio` widens the face crop (2.0 = upstream). The rendered video shows the framing."
+    "## 2. Model - loaded once\n\nPro model (6.0 GB), the Wan 2.1 VAE and the wav2vec2 audio encoder, downloaded by setup to `ComfyUI/models/flashhead/`. It stays loaded between runs.\n\n**compile** (torch.compile) makes every chunk faster after a one-off warm-up of a minute or two on the first run. If it errors, turn it off."
    ],
    "color": "#222",
    "bgcolor": "#000"
   },
   {
-   "id": 5,
+   "id": 6,
    "type": "MarkdownNote",
    "pos": [
     1980,
-    320
+    770
    ],
    "size": [
     520,
-    320
+    480
    ],
    "flags": {},
    "order": 3,
@@ -103,33 +103,7 @@
    },
    "title": "About stage 3",
    "widgets_values": [
-    "## 3. Model - loaded once\n\nPro model (6.0 GB), the Wan 2.1 VAE and the wav2vec2 audio encoder, downloaded by setup to `ComfyUI/models/flashhead/`. It stays loaded between runs.\n\n**compile** (torch.compile) makes every chunk faster after a one-off warm-up of a minute or two on the first run. If it errors, turn it off."
-   ],
-   "color": "#222",
-   "bgcolor": "#000"
-  },
-  {
-   "id": 6,
-   "type": "MarkdownNote",
-   "pos": [
-    2640,
-    770
-   ],
-   "size": [
-    520,
-    440
-   ],
-   "flags": {},
-   "order": 4,
-   "mode": 0,
-   "inputs": [],
-   "outputs": [],
-   "properties": {
-    "Node name for S&R": "MarkdownNote"
-   },
-   "title": "About stage 4",
-   "widgets_values": [
-    "## 4. Render\n\n**anchor: continuous (upstream)**. Every 1.12 s chunk continues from the previous one's last 5 frames, as upstream does: seamless, never reset to the portrait. Over the 71 s sample it did not drift.\n\nEach file in `ComfyUI/input/batch_audio/` becomes `output/<file name>_pro_continuous.mp4`, with your original audio. Timing (seconds of rendering per second of video, peak VRAM) is printed in the log.\n\n**Watch it as it renders.** The Render node shows the newest frame live, and the video is saved in ~30 s parts you can play in JupyterLab while the rest renders: `output/flashhead_parts/<name>/part_001.mp4`, ... **Cancel** to stop; queue again with the same inputs and it resumes after the last finished part. The parts are removed when the video is done.\n\n**color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two renders can be compared on identical noise."
+    "## 3. Render\n\n**anchor: continuous (upstream)**. Every 1.12 s chunk continues from the previous one's last 5 frames, as upstream does: seamless, never reset to the portrait. Over the 71 s sample it did not drift.\n\nEach file in `ComfyUI/input/batch_audio/` becomes `output/<file name>_pro_continuous.mp4`, with your original audio. The portrait is framed as FlashHead was trained: a 512 x 512 square twice the face width around the face. Timing (seconds of rendering per second of video, peak VRAM) is printed in the log.\n\n**Watch it as it renders.** The Render node shows the newest frame live, and the video is saved in ~30 s parts you can play in JupyterLab while the rest renders: `output/flashhead_parts/<name>/part_001.mp4`, ... **Cancel** to stop; queue again with the same inputs and it resumes after the last finished part. The parts are removed when the video is done.\n\n**color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two renders can be compared on identical noise."
    ],
    "color": "#222",
    "bgcolor": "#000"
@@ -146,7 +120,7 @@
     500
    ],
    "flags": {},
-   "order": 5,
+   "order": 4,
    "mode": 0,
    "inputs": [],
    "outputs": [
@@ -178,8 +152,8 @@
    "bgcolor": "#533"
   },
   {
-   "id": 20,
-   "type": "FlashHeadPortrait",
+   "id": 30,
+   "type": "FlashHeadLoader",
    "pos": [
     1350,
     120
@@ -189,51 +163,7 @@
     110
    ],
    "flags": {},
-   "order": 6,
-   "mode": 0,
-   "inputs": [
-    {
-     "localized_name": "image",
-     "name": "image",
-     "type": "IMAGE",
-     "link": 1
-    }
-   ],
-   "outputs": [
-    {
-     "localized_name": "portrait",
-     "name": "portrait",
-     "type": "IMAGE",
-     "links": [
-      2
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "FlashHeadPortrait",
-    "cnr_id": "comfyui-flashhead"
-   },
-   "title": "Portrait framing (face crop or whole image)",
-   "widgets_values": [
-    "face crop",
-    2.0
-   ],
-   "color": "#322",
-   "bgcolor": "#533"
-  },
-  {
-   "id": 30,
-   "type": "FlashHeadLoader",
-   "pos": [
-    2010,
-    120
-   ],
-   "size": [
-    460,
-    110
-   ],
-   "flags": {},
-   "order": 7,
+   "order": 5,
    "mode": 0,
    "inputs": [],
    "outputs": [
@@ -242,7 +172,7 @@
      "name": "flashhead",
      "type": "FLASHHEAD",
      "links": [
-      3
+      2
      ]
     }
    ],
@@ -260,7 +190,7 @@
    "id": 40,
    "type": "FlashHeadBatchFolder",
    "pos": [
-    2670,
+    2010,
     120
    ],
    "size": [
@@ -268,20 +198,20 @@
     560
    ],
    "flags": {},
-   "order": 8,
+   "order": 6,
    "mode": 0,
    "inputs": [
     {
      "localized_name": "flashhead",
      "name": "flashhead",
      "type": "FLASHHEAD",
-     "link": 3
+     "link": 2
     },
     {
      "localized_name": "portrait",
      "name": "portrait",
      "type": "IMAGE",
-     "link": 2
+     "link": 1
     }
    ],
    "outputs": [
@@ -315,20 +245,12 @@
    1,
    10,
    0,
-   20,
-   0,
-   "IMAGE"
-  ],
-  [
-   2,
-   20,
-   0,
    40,
    1,
    "IMAGE"
   ],
   [
-   3,
+   2,
    30,
    0,
    40,
@@ -352,22 +274,9 @@
   },
   {
    "id": 2,
-   "title": "2. Portrait",
+   "title": "2. Model",
    "bounding": [
     1320,
-    0,
-    520,
-    260
-   ],
-   "color": "#b06634",
-   "font_size": 26,
-   "flags": {}
-  },
-  {
-   "id": 3,
-   "title": "3. Model",
-   "bounding": [
-    1980,
     0,
     520,
     260
@@ -377,10 +286,10 @@
    "flags": {}
   },
   {
-   "id": 4,
-   "title": "4. Render",
+   "id": 3,
+   "title": "3. Render",
    "bounding": [
-    2640,
+    1980,
     0,
     520,
     710

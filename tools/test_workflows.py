@@ -91,8 +91,7 @@ class WorkflowTests(unittest.TestCase):
         for w, wf, nodes in self.each():
             with self.subTest(workflow=w["path"]):
                 links = self.sources(wf, nodes)
-                expected = {(20, "image"): (10, "IMAGE"),
-                            (40, "portrait"): (20, "portrait"),
+                expected = {(40, "portrait"): (10, "IMAGE"),
                             (40, "flashhead"): (30, "flashhead")}
                 if not w["batch"]:
                     expected[(40, "audio")] = (11, "AUDIO")
@@ -110,19 +109,18 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual((anchor, reset_seconds, suffix),
                                  (v["anchor"], v["reset_seconds"], v["suffix"]))
                 self.assertEqual((seed, control, color), (42, "fixed", 1.0))
-                self.assertEqual(nodes[20]["widgets_values"], [engine.FRAMING_FACE, 2.0])
                 self.assertEqual(nodes[30]["widgets_values"], ["pro", True])
                 self.assertEqual(nodes[10]["widgets_values"][0], builder.SAMPLE_PORTRAIT)
                 if not w["batch"]:
                     self.assertEqual(nodes[11]["widgets_values"][0], builder.SAMPLE_VOICEOVER)
-        suffixes = [v["suffix"] for v in builder.VARIANTS.values()]
-        self.assertEqual(len(set(suffixes)), len(suffixes), "outputs must not collide")
-        self.assertTrue({builder.ANCHOR_CONTINUOUS, builder.ANCHOR_PAUSES}
-                        <= set(engine.ANCHORS))
+        self.assertIn(builder.ANCHOR_CONTINUOUS, engine.ANCHORS)
+        # Continuous only: every chunk continues from the one before, never a reset.
         self.assertEqual([w["variant"] for w in builder.WORKFLOWS],
-                         ["continuous", "continuous", "refresh_at_pauses",
-                          "refresh_at_pauses"])
-        self.assertEqual([w["batch"] for w in builder.WORKFLOWS], [False, True, False, True])
+                         ["continuous", "continuous"])
+        self.assertEqual([w["batch"] for w in builder.WORKFLOWS], [False, True])
+        # The Render nodes frame the face themselves: no separate portrait node.
+        for w, wf, nodes in self.each():
+            self.assertNotIn("FlashHeadPortrait", {n["type"] for n in nodes.values()})
 
     def test_samples_ship_with_the_repo(self):
         shipped = {p.name for p in (ROOT / "samples").iterdir()}

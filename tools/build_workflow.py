@@ -4,10 +4,9 @@ Generate the FlashHead Pro workflow JSON files. Re-run after editing:
 
     python tools/build_workflow.py
 
-Every workflow is the same small graph: Load Portrait -> FlashHead Portrait (face crop)
--> FlashHead Render, with the model loader and the voiceover. They differ only in the
-anchor (how chunks join): continuous, or continuous with a refresh from the portrait at
-a real pause every 40-60 s. Each comes for one voiceover and for a folder of them.
+Both workflows are the same small graph: Load Portrait -> FlashHead Render (which
+frames the face itself), with the model loader and the voiceover; one renders a single
+voiceover, the other a folder of them. Every chunk continues from the one before.
 Each opens on the shipped samples.
 
 Layout: numbered stages from left to right, each a coloured group with a note
@@ -38,8 +37,6 @@ SAMPLE_PORTRAIT = "sample_portrait.png"
 SAMPLE_VOICEOVER = "sample_voiceover.mp3"
 
 ANCHOR_CONTINUOUS = "continuous (upstream)"
-ANCHOR_PAUSES = "refresh from portrait at a pause"
-FRAMING_FACE = "face crop"
 
 VARIANTS = {
     "continuous": dict(
@@ -48,29 +45,15 @@ VARIANTS = {
         summary="Every 1.12 s chunk continues from the previous one's last 5 frames, as "
                 "upstream does: seamless, never reset to the portrait. Over the 71 s "
                 "sample it did not drift."),
-    "refresh_at_pauses": dict(
-        title="Refresh at Pauses (40-60 s)", anchor=ANCHOR_PAUSES, reset_seconds=40.0,
-        suffix="_pro_refresh",
-        summary="Continuous, plus a full refresh against drift on long videos: once in "
-                "every 40-60 s, in the middle of a real pause in the speech (mouth "
-                "shut), the render starts again from the portrait. The cuts are planned "
-                "from the whole voiceover before rendering. A small jump in a silence, in "
-                "exchange for a face that cannot wander over minutes."),
 }
 
-# In pairs, one voiceover then a folder of them: continuous, then refresh at pauses.
+# One voiceover, then a folder of them.
 WORKFLOWS = [
     dict(variant="continuous", batch=False, path="flashhead_pro_1_continuous.json",
          id="b6884540-f6dc-46dd-9c9f-b8185325d314"),
     dict(variant="continuous", batch=True,
          path="flashhead_pro_2_batch_folder_continuous.json",
          id="dfdf123e-332c-4d51-ab51-1cd70e7aff1c"),
-    dict(variant="refresh_at_pauses", batch=False,
-         path="flashhead_pro_3_refresh_at_pauses.json",
-         id="db345799-55fc-4d16-99c4-34a0f27c2d09"),
-    dict(variant="refresh_at_pauses", batch=True,
-         path="flashhead_pro_4_batch_folder_refresh_at_pauses.json",
-         id="598d1f1f-eea6-40bf-bfa8-ea15b169aea4"),
 ]
 
 # ------------------------------------------------------------------------ notes
@@ -84,13 +67,7 @@ One run renders the whole voiceover; there is nothing to queue chunk by chunk.
 
 Code: https://github.com/Soul-AILab/SoulX-FlashHead"""
 
-NOTE_PORTRAIT = """## 2. Portrait
-
-FlashHead was trained on **512 x 512 face crops**. **face crop** frames a square twice the face width around the face (upstream's framing, found with OpenCV). **whole image** center-crops the picture instead, keeping shoulders and background but making the face small.
-
-`face_ratio` widens the face crop (2.0 = upstream). The rendered video shows the framing."""
-
-NOTE_MODEL = """## 3. Model - loaded once
+NOTE_MODEL = """## 2. Model - loaded once
 
 Pro model (6.0 GB), the Wan 2.1 VAE and the wav2vec2 audio encoder, downloaded by setup to `ComfyUI/models/flashhead/`. It stays loaded between runs.
 
@@ -100,11 +77,11 @@ Pro model (6.0 GB), the Wan 2.1 VAE and the wav2vec2 audio encoder, downloaded b
 def note_render(v, batch):
     where = ("Each file in `ComfyUI/input/batch_audio/` becomes `output/<file name>"
              if batch else "The video is saved as `output/<audio name>")
-    return f"""## 4. Render
+    return f"""## 3. Render
 
 **anchor: {v['anchor']}**. {v['summary']}
 
-{where}{v['suffix']}.mp4`, with your original audio. Timing (seconds of rendering per second of video, peak VRAM) is printed in the log.
+{where}{v['suffix']}.mp4`, with your original audio. The portrait is framed as FlashHead was trained: a 512 x 512 square twice the face width around the face. Timing (seconds of rendering per second of video, peak VRAM) is printed in the log.
 
 **Watch it as it renders.** The Render node shows the newest frame live, and the video is saved in ~30 s parts you can play in JupyterLab while the rest renders: `output/flashhead_parts/<name>/part_001.mp4`, ... **Cancel** to stop; queue again with the same inputs and it resumes after the last finished part. The parts are removed when the video is done.
 
@@ -123,10 +100,9 @@ def note_start(w, v):
 
 **Red nodes are the ones you set.** Stages run left to right with a note under each.
 
-1. **Load Portrait** - opens on the sample portrait.
+1. **Load Portrait** - opens on the sample portrait; any portrait works, the face is found and framed automatically.
 {audio}
-3. Choose the **framing** (stage 2): face crop or whole image.
-4. **Run.** One run renders the whole video and shows it on the Render node.
+3. **Run.** One run renders the whole video and shows it on the Render node.
 
 Full instructions: https://github.com/tenitsky/flashhead-pro-avatar"""
 
@@ -232,9 +208,8 @@ def build(variant="continuous", batch=False):
 
     md(g, 1, "Start here", note_start(w, v), (COLUMN_W, 720))
     md(g, 2, "About FlashHead", NOTE_ABOUT, (COLUMN_W, 560))
-    md(g, 4, "About stage 2", NOTE_PORTRAIT, (COLUMN_W, 380))
-    md(g, 5, "About stage 3", NOTE_MODEL, (COLUMN_W, 320))
-    md(g, 6, "About stage 4", note_render(v, batch), (COLUMN_W, 440))
+    md(g, 5, "About stage 2", NOTE_MODEL, (COLUMN_W, 320))
+    md(g, 6, "About stage 3", note_render(v, batch), (COLUMN_W, 480))
 
     # 1. inputs
     g.node(10, "LoadImage", outputs=[("IMAGE", "IMAGE"), ("MASK", "MASK")],
@@ -245,18 +220,12 @@ def build(variant="continuous", batch=False):
                widgets=[SAMPLE_VOICEOVER, None, None], title="Load Voiceover",
                color=INPUT, size=size(150))
 
-    # 2. portrait
-    g.node(20, "FlashHeadPortrait", inputs=[("image", "IMAGE", I, False)],
-           outputs=[("portrait", "IMAGE")], widgets=[FRAMING_FACE, 2.0],
-           title="Portrait framing (face crop or whole image)", color=INPUT, cnr=LF,
-           size=size(110))
-
-    # 3. model
+    # 2. model
     g.node(30, "FlashHeadLoader", outputs=[("flashhead", "FLASHHEAD")],
            widgets=["pro", True], title="FlashHead Pro (loaded once)", cnr=LF,
            size=size(110))
 
-    # 4. render
+    # 3. render
     common = [v["anchor"], v["reset_seconds"], 42, "fixed", 1.0, v["suffix"]]
     if batch:
         g.node(40, "FlashHeadBatchFolder",
@@ -273,17 +242,15 @@ def build(variant="continuous", batch=False):
                title="Render the whole video", cnr=LF, size=size(560))
 
     L = g.link
-    L(10, 0, 20, "image")
-    L(20, 0, 40, "portrait")
+    L(10, 0, 40, "portrait")
     L(30, 0, 40, "flashhead")
     if not batch:
         L(11, 0, 40, "audio")
 
     stages = [
         ("1. Your inputs", "input", [10] + ([] if batch else [11]), []),
-        ("2. Portrait", "portrait", [20], [4]),
-        ("3. Model", "models", [30], [5]),
-        ("4. Render", "output", [40], [6]),
+        ("2. Model", "models", [30], [5]),
+        ("3. Render", "output", [40], [6]),
     ]
     groups = lay_out(g, stages, [1, 2])
     return {

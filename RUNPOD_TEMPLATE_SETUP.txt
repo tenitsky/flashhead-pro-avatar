@@ -129,12 +129,9 @@ HF_TOKEN=
 
 # Workflows (copied into ComfyUI's Workflows sidebar; edited copies are never overwritten)
 #   flashhead_pro_1_continuous           upstream: every chunk continues the last
-#   flashhead_pro_2_batch_folder_continuous         continuous, every voiceover in
+#   flashhead_pro_2_batch_folder_continuous         the same, every voiceover in
 #                                        input/batch_audio/
-#   flashhead_pro_3_refresh_at_pauses    continuous + restart from the portrait in the
-#                                        middle of a real pause every 40-60 s
-#   flashhead_pro_4_batch_folder_refresh_at_pauses   the same, every voiceover in
-#                                        input/batch_audio/
+# The Render node frames the face itself (512 x 512, twice the face width).
 
 
 # ------------------------------------------------------------------------------

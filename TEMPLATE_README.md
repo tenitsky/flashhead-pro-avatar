@@ -22,8 +22,9 @@ Jupyter has no login by default; anyone with its URL can run commands. For a log
 1. Open ComfyUI's **Workflows** sidebar.
 2. Select **flashhead_pro_1_continuous**.
 3. Set **Load Portrait** and **Load Voiceover**. A sample portrait and a 71 s sample voiceover are preloaded, so the first run needs no uploads.
-4. Choose the framing. **face crop** frames a square twice the face width, as FlashHead was trained; **whole image** keeps shoulders and background (smaller face). face_ratio widens the crop.
-5. **Run.** The first run loads the model and warms up for a minute or two.
+4. **Run.** The first run loads the model and warms up for a minute or two.
+
+The face is found and framed automatically, as FlashHead was trained: a 512 x 512 square twice the face width around it.
 
 The video is saved as ComfyUI/output/<audio name>_pro_continuous.mp4. Timing and peak VRAM are printed in the log.
 
@@ -36,25 +37,13 @@ The video is saved as ComfyUI/output/<audio name>_pro_continuous.mp4. Timing and
 
 ## Workflows
 
-1. **Continuous** - every 1.12 s chunk continues from the previous one, as upstream: seamless, never reset to the portrait.
-2. **Batch Folder Continuous** - the same for every voiceover in ComfyUI/input/batch_audio/ (upload with JupyterLab), one video each.
-3. **Refresh at Pauses (40-60 s)** - continuous, plus a restart from the portrait once in every 40-60 s so the face cannot drift over many minutes.
-4. **Batch Folder Refresh at Pauses** - the same for every voiceover in input/batch_audio/.
-
-## Restarts only in silence
-
-The restarts are **planned from the whole voiceover before rendering**:
-
-- A **real pause** is at least 0.4 s of near-silence, measured against the recording's own levels. Gaps between words do not count.
-- Each restart goes **in the middle of the longest real pause** 40-60 s after the previous one; if there is none, the next real pause within 20 s.
-- The chunk before it ends exactly there, so the small jump happens while the mouth is shut.
-
-The log lists every restart with its pause length. reset_seconds on the Render node sets the earliest restart (40 s).
+1. **Continuous** - one voiceover. Every 1.12 s chunk continues from the previous one: seamless, never reset to the portrait.
+2. **Batch Folder Continuous** - the same for every voiceover in ComfyUI/input/batch_audio/ (upload with JupyterLab), one video each. Files already rendered are skipped.
 
 ## Tips
 
 - Use a clear, front-facing portrait with an open view of the mouth.
-- Clean voiceovers (no music) give the best lip sync and pause detection.
+- Clean voiceovers (no music) give the best lip sync.
 - A workflow you edit is never overwritten on reboot.
 
 ## Hardware

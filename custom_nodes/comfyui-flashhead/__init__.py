@@ -93,7 +93,10 @@ def _render(flashhead, portrait, waveform, sample_rate, name, anchor, reset_seco
     _clear_old_scratch()
     # Scratch files go to ComfyUI's temp folder, which ComfyUI empties at every start;
     # output only ever holds the videos (and the parts of an unfinished one).
-    stats = engine.render(pipeline, motion, _portrait_array(portrait), waveform,
+    # FlashHead was trained on 512 x 512 face crops: a square twice the face width
+    # around the face (the whole image, center-cropped, if no face is found).
+    framed = engine.frame_portrait(_portrait_array(portrait), engine.FRAMING_FACE)
+    stats = engine.render(pipeline, motion, framed, waveform,
                           sample_rate, out, anchor=anchor, reset_seconds=reset_seconds,
                           seed=seed, color_correction=color_correction,
                           on_chunk=_progress(chunks),
@@ -170,38 +173,15 @@ class FlashHeadLoader:
         return (_loaded[key],)
 
 
-class FlashHeadPortrait:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {"required": {
-            "image": ("IMAGE",),
-            "framing": (engine.FRAMINGS, {
-                "tooltip": "face crop: a square around the face, as FlashHead was "
-                           "trained (talking head). whole image: the picture "
-                           "center-cropped to a square."}),
-            "face_ratio": ("FLOAT", {
-                "default": 2.0, "min": 1.2, "max": 4.0, "step": 0.1,
-                "tooltip": "Face crop size as a multiple of the face width. Larger "
-                           "shows more hair and shoulders; upstream uses 2.0."}),
-        }}
-
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("portrait",)
-    FUNCTION = "frame"
-    CATEGORY = CATEGORY
-
-    def frame(self, image, framing=engine.FRAMING_FACE, face_ratio=2.0):
-        square = engine.frame_portrait(_portrait_array(image), framing, face_ratio)
-        return (torch.from_numpy(square.astype(np.float32) / 255.0).unsqueeze(0),)
-
-
 class FlashHeadRender:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "flashhead": ("FLASHHEAD",),
-                "portrait": ("IMAGE", {"tooltip": "From FlashHead Portrait (512 x 512)."}),
+                "portrait": ("IMAGE", {"tooltip": "Any portrait: the face is found and "
+                                                  "framed as FlashHead was trained, a "
+                                                  "512 x 512 square twice the face width."}),
                 "audio": ("AUDIO",),
                 "anchor": (engine.ANCHORS, {"tooltip": ANCHOR_TOOLTIP}),
                 "reset_seconds": ("FLOAT", {
@@ -309,14 +289,12 @@ def _load_file(path, sample_rate=48000):
 
 NODE_CLASS_MAPPINGS = {
     "FlashHeadLoader": FlashHeadLoader,
-    "FlashHeadPortrait": FlashHeadPortrait,
     "FlashHeadRender": FlashHeadRender,
     "FlashHeadBatchFolder": FlashHeadBatchFolder,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "FlashHeadLoader": "FlashHead: Load Model",
-    "FlashHeadPortrait": "FlashHead: Portrait (face crop)",
     "FlashHeadRender": "FlashHead: Render Long Video",
     "FlashHeadBatchFolder": "FlashHead: Render Batch Folder",
 }

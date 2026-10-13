@@ -15,3 +15,6 @@ token.txt
 
 # Installed by setup.sh on the pod, never committed
 custom_nodes/comfyui-flashhead/SoulX-FlashHead/
+
+# Workflows set aside, kept locally only
+/unused/
