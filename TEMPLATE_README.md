@@ -36,19 +36,20 @@ The video is saved as ComfyUI/output/<audio name>_pro_continuous.mp4. Timing and
 
 ## Workflows
 
-1. **Continuous** - every 1.12 s chunk continues from the previous one, as upstream: seamless joins. Best for clips up to a minute.
-2. **Refresh at Pauses (20-40 s)** - continuous, plus a restart from the portrait once in every 20-40 s so the face cannot drift over minutes.
-3. **Batch Folder** - workflow 2 for every voiceover in ComfyUI/input/batch_audio/ (upload with JupyterLab), one video each, with the same portrait.
+1. **Continuous** - every 1.12 s chunk continues from the previous one, as upstream: seamless, never reset to the portrait.
+2. **Batch Folder Continuous** - the same for every voiceover in ComfyUI/input/batch_audio/ (upload with JupyterLab), one video each.
+3. **Refresh at Pauses (40-60 s)** - continuous, plus a restart from the portrait once in every 40-60 s so the face cannot drift over many minutes.
+4. **Batch Folder Refresh at Pauses** - the same for every voiceover in input/batch_audio/.
 
 ## Restarts only in silence
 
 The restarts are **planned from the whole voiceover before rendering**:
 
 - A **real pause** is at least 0.4 s of near-silence, measured against the recording's own levels. Gaps between words do not count.
-- Each restart goes **in the middle of the longest real pause** 20-40 s after the previous one; if there is none, the next real pause within 20 s.
+- Each restart goes **in the middle of the longest real pause** 40-60 s after the previous one; if there is none, the next real pause within 20 s.
 - The chunk before it ends exactly there, so the small jump happens while the mouth is shut.
 
-The log lists every restart with its pause length. reset_seconds on the Render node sets the earliest restart (20 s).
+The log lists every restart with its pause length. reset_seconds on the Render node sets the earliest restart (40 s).
 
 ## Tips
 

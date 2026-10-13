@@ -189,30 +189,30 @@ class RenderLoopTests(unittest.TestCase):
             wave[int(start * sr):int((start + length) * sr)] *= 0.001
         return wave
 
-    def test_refreshes_go_in_the_middle_of_the_longest_real_pause_20_to_40_s_apart(self):
+    def test_refreshes_go_in_the_middle_of_the_longest_real_pause_40_to_60_s_apart(self):
         self.assertEqual((engine.REFRESH_SECONDS, engine.PAUSE_WINDOW, engine.MIN_PAUSE),
-                         (20.0, 20.0, 0.4))
-        pauses = [(27.1, 0.6), (33.1, 0.9), (70.1, 0.6), (105.1, 0.6)]
-        mono = self.talk(125, pauses)
-        total = 125 * 25
+                         (40.0, 20.0, 0.4))
+        pauses = [(47.1, 0.6), (53.1, 0.9), (105.1, 0.6), (160.1, 0.6)]
+        mono = self.talk(185, pauses)
+        total = 185 * 25
         plan = engine.pause_refreshes(mono, total, details=True)
-        # The longest real pause in [20, 40] s is the 0.9 s one at 33.1 s, not 27.1 s.
+        # The longest real pause in [40, 60] s is the 0.9 s one at 53.1 s, not 47.1 s.
         self.assertEqual(len(plan), 3)
-        for (frame, _, _), want in zip(plan, (33.55, 70.4, 105.4)):
+        for (frame, _, _), want in zip(plan, (53.55, 105.4, 160.4)):
             self.assertAlmostEqual(frame / 25, want, delta=0.1)
         last = 0
         for frame, length, how in plan:
             self.assertEqual(how, "pause")
             self.assertGreaterEqual(length, 0.4)
             self.assertTrue(any(a * 25 < frame < (a + l) * 25 for a, l in pauses), frame)
-            self.assertTrue(20 * 25 <= frame - last <= 40 * 25)
+            self.assertTrue(40 * 25 <= frame - last <= 60 * 25)
             last = frame
-        self.assertEqual(engine.pause_refreshes(mono[:19 * 16000], 19 * 25), [])
+        self.assertEqual(engine.pause_refreshes(mono[:39 * 16000], 39 * 25), [])
 
     def test_without_a_real_pause_in_the_window_the_next_one_is_used(self):
-        plan = engine.pause_refreshes(self.talk(90, [(51.0, 0.5)]), 90 * 25, details=True)
+        plan = engine.pause_refreshes(self.talk(120, [(71.0, 0.5)]), 120 * 25, details=True)
         self.assertEqual(plan[0][2], "pause after the window")
-        self.assertTrue(51.0 * 25 < plan[0][0] < 51.5 * 25)
+        self.assertTrue(71.0 * 25 < plan[0][0] < 71.5 * 25)
         # Speech that never pauses long still gets a refresh, on a short gap.
         plan = engine.pause_refreshes(self.talk(70, []), 70 * 25, details=True)
         self.assertTrue(plan and all(how == "short gap" for _, _, how in plan))
@@ -231,7 +231,7 @@ class RenderLoopTests(unittest.TestCase):
     def test_refresh_at_pauses_restarts_mid_pause_with_aligned_audio(self):
         pauses = [(27.1, 0.6), (33.1, 0.9), (70.1, 0.6)]
         mono = self.talk(80, pauses)
-        expected = [f for f, _, _ in engine.pause_refreshes(mono, 80 * 25, details=True)]
+        expected = [f for f, _, _ in engine.pause_refreshes(mono, 80 * 25, 20.0, details=True)]
         pipe = FakePipeline()
         wave = torch.from_numpy(np.stack([mono, mono]))
         stats = engine.render(pipe, MOTION, self.portrait, wave, 16000,

@@ -120,7 +120,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue({builder.ANCHOR_CONTINUOUS, builder.ANCHOR_PAUSES}
                         <= set(engine.ANCHORS))
         self.assertEqual([w["variant"] for w in builder.WORKFLOWS],
-                         ["continuous", "refresh_at_pauses", "refresh_at_pauses"])
+                         ["continuous", "continuous", "refresh_at_pauses",
+                          "refresh_at_pauses"])
+        self.assertEqual([w["batch"] for w in builder.WORKFLOWS], [False, True, False, True])
 
     def test_samples_ship_with_the_repo(self):
         shipped = {p.name for p in (ROOT / "samples").iterdir()}

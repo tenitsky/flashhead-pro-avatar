@@ -132,7 +132,7 @@ def _video_ui(path):
 
 
 ANCHOR_TOOLTIP = ("continuous: every ~1 s chunk continues from the previous one "
-                  "(upstream). refresh at a pause: continuous, but once in every 20-40 s "
+                  "(upstream). refresh at a pause: continuous, but once in every 40-60 s "
                   "(reset_seconds to reset_seconds + 20 s) the render starts again from "
                   "the portrait in the middle of a real pause (0.4 s+ of silence), "
                   "planned from the whole voiceover. reset every chunk / every N "
@@ -205,7 +205,7 @@ class FlashHeadRender:
                 "audio": ("AUDIO",),
                 "anchor": (engine.ANCHORS, {"tooltip": ANCHOR_TOOLTIP}),
                 "reset_seconds": ("FLOAT", {
-                    "default": 20.0, "min": 1.0, "max": 600.0, "step": 0.5,
+                    "default": engine.REFRESH_SECONDS, "min": 1.0, "max": 600.0, "step": 0.5,
                     "tooltip": "Refresh at a pause: earliest refresh after the last one "
                                "(the longest real pause in the following 20 s is used, "
                                "or the next one after that). Reset every N seconds: the "

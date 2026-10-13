@@ -12,7 +12,7 @@ at roughly 4–6× Lite's cost. Upstream: Pro runs at 10.8 FPS on an RTX 4090 (a
 2.3 s per second of video); Lite at 96 FPS.
 
 Two ways to render: **continuous** (seamless, as upstream), and **refresh at pauses**,
-which also restarts from the portrait every 20-40 s, in the middle of a real pause in
+which also restarts from the portrait every 40-60 s, in the middle of a real pause in
 the speech, so a face cannot wander over minutes-long voiceovers.
 
 ComfyUI has no FlashHead nodes. This repo's small `comfyui-flashhead` pack drives
@@ -32,7 +32,7 @@ The **anchor** setting on the Render node controls what a chunk opens on:
 | Anchor | Each chunk opens on | Trade-off |
 |---|---|---|
 | **continuous (upstream)** | the previous chunk's last 5 frames | seamless joins; could drift over long videos |
-| **refresh from portrait at a pause** | continuous, but every 20-40 s the portrait, in the middle of a real pause | one small jump in a silence per 20-40 s; drift bounded |
+| **refresh from portrait at a pause** | continuous, but every 40-60 s the portrait, in the middle of a real pause | one small jump in a silence per 40-60 s; drift bounded |
 | reset to portrait every chunk / every N seconds | the portrait on a fixed schedule | for comparison: jumps regardless of the speech |
 
 A reset is upstream's own `reset_person_name()`: the next chunk starts the way the first
@@ -45,7 +45,7 @@ rendering starts**, and only go where the mouth is shut:
    against the recording's own speech and noise levels. Short gaps between words do
    not count.
 2. Each refresh goes **in the middle of the longest real pause** between `reset_seconds`
-   (20) and `reset_seconds` + 20 s after the previous one, never in the last 3 s.
+   (40) and `reset_seconds` + 20 s after the previous one, never in the last 3 s.
 3. If that window has no real pause, the **next real pause within 20 s** is used rather
    than cutting into speech. Only when there is none at all does a shorter gap get it.
 
@@ -86,7 +86,7 @@ On first pod boot, `setup.sh`:
 5. Copies the sample portrait and voiceover into `ComfyUI/input/` (never over a file of
    the same name)
 6. Downloads the model files (skip-if-exists, resumable, validated)
-7. Installs the three workflows into ComfyUI's **Workflows** sidebar
+7. Installs the four workflows into ComfyUI's **Workflows** sidebar
 8. Hands over to `/start.sh` (ComfyUI on port **8188**, JupyterLab on **8888**)
 
 On later boots every step finds its work done and is skipped.
@@ -214,10 +214,13 @@ ComfyUI has no pause button: **cancel** is the pause, and queueing again resumes
 | Workflow | Anchor | Output suffix |
 |---|---|---|
 | `flashhead_pro_1_continuous` | continuous (upstream) | `_pro_continuous` |
-| `flashhead_pro_2_refresh_at_pauses` | refresh from portrait in a real pause, every 20-40 s | `_pro_refresh` |
-| `flashhead_pro_3_batch_folder_refresh_at_pauses` | the same, for every voiceover in `input/batch_audio/` | `_pro_refresh` |
+| `flashhead_pro_2_batch_folder_continuous` | continuous, for every voiceover in `input/batch_audio/` | `_pro_continuous` |
+| `flashhead_pro_3_refresh_at_pauses` | refresh from portrait in a real pause, every 40-60 s | `_pro_refresh` |
+| `flashhead_pro_4_batch_folder_refresh_at_pauses` | refresh at pauses, for every voiceover in `input/batch_audio/` | `_pro_refresh` |
 
-Use **1** for short clips and **2** for voiceovers of a minute or more.
+**Continuous** never resets to the portrait; **refresh at pauses** restarts from it once
+a minute or so, at a pause, against drift on long voiceovers. The batch versions render
+every file in the folder in one run, one video each, skipping files already rendered.
 
 The anchor, reset spacing, seed and colour correction are all on the Render node, so
 any workflow can be switched; change `name_suffix` with them so outputs do not overwrite
@@ -297,7 +300,7 @@ several minutes.
 │   ├── test_boot.py                       # full setup with image/network fixtures (Linux)
 │   ├── test_jupyter.py                    # auth switch and real Jupyter Server smoke test
 │   └── test_setup.py                      # Bash download and start-command checks
-└── workflows/                             # the three workflows listed above
+└── workflows/                             # the four workflows listed above
 ```
 
 ## Credits

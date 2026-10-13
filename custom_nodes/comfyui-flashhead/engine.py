@@ -21,7 +21,7 @@ The anchor setting is the experiment this template exists for:
                         so every ~1 s starts again from the portrait pose
   reset every N seconds the same, but only every N seconds: a periodic re-anchor
                         against slow drift, with one visible reset at each
-  refresh at a pause    the same re-anchor once in every 20-40 s, in the middle of a
+  refresh at a pause    the same re-anchor once in every 40-60 s, in the middle of a
                         real pause in the speech (mouth shut), planned from the whole
                         voiceover; the chunk before it ends in the pause
 
@@ -68,8 +68,8 @@ ANCHOR_EVERY_CHUNK = "reset to portrait every chunk"
 ANCHOR_EVERY_N = "reset to portrait every N seconds"
 ANCHORS = [ANCHOR_CONTINUOUS, ANCHOR_PAUSES, ANCHOR_EVERY_CHUNK, ANCHOR_EVERY_N]
 # Refresh at a pause: once in every reset_seconds to reset_seconds + PAUSE_WINDOW
-# (20-40 s by default), in the middle of a real pause, never in the last REFRESH_TAIL s.
-REFRESH_SECONDS = 20.0
+# (40-60 s by default), in the middle of a real pause, never in the last REFRESH_TAIL s.
+REFRESH_SECONDS = 40.0
 PAUSE_WINDOW = 20.0
 MIN_PAUSE = 0.4             # seconds of near-silence that count as a real pause
 PAUSE_SEARCH_EXTRA = 20.0   # look this much past the window for a real pause

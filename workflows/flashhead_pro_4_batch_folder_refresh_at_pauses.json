@@ -1,8 +1,8 @@
 {
- "id": "db345799-55fc-4d16-99c4-34a0f27c2d09",
+ "id": "598d1f1f-eea6-40bf-bfa8-ea15b169aea4",
  "revision": 0,
  "last_node_id": 40,
- "last_link_id": 4,
+ "last_link_id": 3,
  "nodes": [
   {
    "id": 1,
@@ -25,7 +25,7 @@
    },
    "title": "Start here",
    "widgets_values": [
-    "# FlashHead Pro - Refresh at Pauses (20-40 s)\n\nContinuous, plus a full refresh against drift on long videos: once in every 20-40 s, in the middle of a real pause in the speech (mouth shut), the render starts again from the portrait. The cuts are planned from the whole voiceover before rendering. A small jump in a silence, in exchange for a face that cannot wander over minutes.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait.\n2. **Load Voiceover** - opens on the 71 s sample; any length works.\n3. Choose the **framing** (stage 2): face crop or whole image.\n4. **Run.** One run renders the whole video and shows it on the Render node.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
+    "# FlashHead Pro - Refresh at Pauses (40-60 s) - Batch Folder\n\nContinuous, plus a full refresh against drift on long videos: once in every 40-60 s, in the middle of a real pause in the speech (mouth shut), the render starts again from the portrait. The cuts are planned from the whole voiceover before rendering. A small jump in a silence, in exchange for a face that cannot wander over minutes.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait.\n2. Put voiceovers in `ComfyUI/input/batch_audio/` (Jupyter, port 8888). Files already rendered are skipped.\n3. Choose the **framing** (stage 2): face crop or whole image.\n4. **Run.** One run renders the whole video and shows it on the Render node.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
    ],
    "color": "#222",
    "bgcolor": "#000"
@@ -129,7 +129,7 @@
    },
    "title": "About stage 4",
    "widgets_values": [
-    "## 4. Render\n\n**anchor: refresh from portrait at a pause**. Continuous, plus a full refresh against drift on long videos: once in every 20-40 s, in the middle of a real pause in the speech (mouth shut), the render starts again from the portrait. The cuts are planned from the whole voiceover before rendering. A small jump in a silence, in exchange for a face that cannot wander over minutes.\n\nThe video is saved as `output/<audio name>_pro_refresh.mp4`, with your original audio. Timing (seconds of rendering per second of video, peak VRAM) is printed in the log.\n\n**Watch it as it renders.** The Render node shows the newest frame live, and the video is saved in ~30 s parts you can play in JupyterLab while the rest renders: `output/flashhead_parts/<name>/part_001.mp4`, ... **Cancel** to stop; queue again with the same inputs and it resumes after the last finished part. The parts are removed when the video is done.\n\n**color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two renders can be compared on identical noise."
+    "## 4. Render\n\n**anchor: refresh from portrait at a pause**. Continuous, plus a full refresh against drift on long videos: once in every 40-60 s, in the middle of a real pause in the speech (mouth shut), the render starts again from the portrait. The cuts are planned from the whole voiceover before rendering. A small jump in a silence, in exchange for a face that cannot wander over minutes.\n\nEach file in `ComfyUI/input/batch_audio/` becomes `output/<file name>_pro_refresh.mp4`, with your original audio. Timing (seconds of rendering per second of video, peak VRAM) is printed in the log.\n\n**Watch it as it renders.** The Render node shows the newest frame live, and the video is saved in ~30 s parts you can play in JupyterLab while the rest renders: `output/flashhead_parts/<name>/part_001.mp4`, ... **Cancel** to stop; queue again with the same inputs and it resumes after the last finished part. The parts are removed when the video is done.\n\n**color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two renders can be compared on identical noise."
    ],
    "color": "#222",
    "bgcolor": "#000"
@@ -178,44 +178,6 @@
    "bgcolor": "#533"
   },
   {
-   "id": 11,
-   "type": "LoadAudio",
-   "pos": [
-    690,
-    670
-   ],
-   "size": [
-    460,
-    150
-   ],
-   "flags": {},
-   "order": 6,
-   "mode": 0,
-   "inputs": [],
-   "outputs": [
-    {
-     "localized_name": "AUDIO",
-     "name": "AUDIO",
-     "type": "AUDIO",
-     "links": [
-      4
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "LoadAudio",
-    "cnr_id": "comfy-core"
-   },
-   "title": "Load Voiceover",
-   "widgets_values": [
-    "sample_voiceover.mp3",
-    null,
-    null
-   ],
-   "color": "#322",
-   "bgcolor": "#533"
-  },
-  {
    "id": 20,
    "type": "FlashHeadPortrait",
    "pos": [
@@ -227,7 +189,7 @@
     110
    ],
    "flags": {},
-   "order": 7,
+   "order": 6,
    "mode": 0,
    "inputs": [
     {
@@ -271,7 +233,7 @@
     110
    ],
    "flags": {},
-   "order": 8,
+   "order": 7,
    "mode": 0,
    "inputs": [],
    "outputs": [
@@ -296,7 +258,7 @@
   },
   {
    "id": 40,
-   "type": "FlashHeadRender",
+   "type": "FlashHeadBatchFolder",
    "pos": [
     2670,
     120
@@ -306,7 +268,7 @@
     560
    ],
    "flags": {},
-   "order": 9,
+   "order": 8,
    "mode": 0,
    "inputs": [
     {
@@ -320,35 +282,32 @@
      "name": "portrait",
      "type": "IMAGE",
      "link": 2
-    },
-    {
-     "localized_name": "audio",
-     "name": "audio",
-     "type": "AUDIO",
-     "link": 4
     }
    ],
    "outputs": [
     {
-     "localized_name": "video_path",
-     "name": "video_path",
+     "localized_name": "summary",
+     "name": "summary",
      "type": "STRING",
      "links": []
     }
    ],
    "properties": {
-    "Node name for S&R": "FlashHeadRender",
+    "Node name for S&R": "FlashHeadBatchFolder",
     "cnr_id": "comfyui-flashhead"
    },
-   "title": "Render the whole video",
+   "title": "Render every voiceover in input/batch_audio",
    "widgets_values": [
     "refresh from portrait at a pause",
-    20.0,
+    40.0,
     42,
     "fixed",
     1.0,
-    "_pro_refresh"
-   ]
+    "_pro_refresh",
+    "batch_audio"
+   ],
+   "color": "#322",
+   "bgcolor": "#533"
   }
  ],
  "links": [
@@ -375,14 +334,6 @@
    40,
    0,
    "FLASHHEAD"
-  ],
-  [
-   4,
-   11,
-   0,
-   40,
-   2,
-   "AUDIO"
   ]
  ],
  "groups": [
@@ -393,7 +344,7 @@
     660,
     0,
     520,
-    850
+    650
    ],
    "color": "#a1309b",
    "font_size": 26,

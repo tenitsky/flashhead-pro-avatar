@@ -7,7 +7,7 @@ Generate the FlashHead Pro workflow JSON files. Re-run after editing:
 Every workflow is the same small graph: Load Portrait -> FlashHead Portrait (face crop)
 -> FlashHead Render, with the model loader and the voiceover. They differ only in the
 anchor (how chunks join): continuous, or continuous with a refresh from the portrait at
-a real pause every 20-40 s; the batch version renders a folder of voiceovers with refreshes.
+a real pause every 40-60 s. Each comes for one voiceover and for a folder of them.
 Each opens on the shipped samples.
 
 Layout: numbered stages from left to right, each a coloured group with a note
@@ -43,29 +43,33 @@ FRAMING_FACE = "face crop"
 
 VARIANTS = {
     "continuous": dict(
-        title="Continuous", anchor=ANCHOR_CONTINUOUS, reset_seconds=20.0,
+        title="Continuous", anchor=ANCHOR_CONTINUOUS, reset_seconds=40.0,
         suffix="_pro_continuous",
         summary="Every 1.12 s chunk continues from the previous one's last 5 frames, as "
-                "upstream does: seamless, with no pose resets. Over the 71 s sample it "
-                "did not drift."),
+                "upstream does: seamless, never reset to the portrait. Over the 71 s "
+                "sample it did not drift."),
     "refresh_at_pauses": dict(
-        title="Refresh at Pauses (20-40 s)", anchor=ANCHOR_PAUSES, reset_seconds=20.0,
+        title="Refresh at Pauses (40-60 s)", anchor=ANCHOR_PAUSES, reset_seconds=40.0,
         suffix="_pro_refresh",
         summary="Continuous, plus a full refresh against drift on long videos: once in "
-                "every 20-40 s, in the middle of a real pause in the speech (mouth "
+                "every 40-60 s, in the middle of a real pause in the speech (mouth "
                 "shut), the render starts again from the portrait. The cuts are planned "
                 "from the whole voiceover before rendering. A small jump in a silence, in "
                 "exchange for a face that cannot wander over minutes."),
 }
 
+# In pairs, one voiceover then a folder of them: continuous, then refresh at pauses.
 WORKFLOWS = [
     dict(variant="continuous", batch=False, path="flashhead_pro_1_continuous.json",
          id="b6884540-f6dc-46dd-9c9f-b8185325d314"),
+    dict(variant="continuous", batch=True,
+         path="flashhead_pro_2_batch_folder_continuous.json",
+         id="dfdf123e-332c-4d51-ab51-1cd70e7aff1c"),
     dict(variant="refresh_at_pauses", batch=False,
-         path="flashhead_pro_2_refresh_at_pauses.json",
+         path="flashhead_pro_3_refresh_at_pauses.json",
          id="db345799-55fc-4d16-99c4-34a0f27c2d09"),
     dict(variant="refresh_at_pauses", batch=True,
-         path="flashhead_pro_3_batch_folder_refresh_at_pauses.json",
+         path="flashhead_pro_4_batch_folder_refresh_at_pauses.json",
          id="598d1f1f-eea6-40bf-bfa8-ea15b169aea4"),
 ]
 
