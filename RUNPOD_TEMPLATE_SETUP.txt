@@ -112,7 +112,7 @@ HF_TOKEN=
 # 7. README TAB
 # ------------------------------------------------------------------------------
 # Paste the contents of TEMPLATE_README.md into the template's README field
-# (about 3,000 characters; RunPod allows up to 5,000).
+# (about 1,500 characters; RunPod allows up to 5,000).
 
 
 # ------------------------------------------------------------------------------
