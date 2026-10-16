@@ -52,12 +52,13 @@ rendering starts**, and only go where the mouth is shut:
 
 The chunk before a refresh keeps only its frames up to that point, so the refresh lands
 on the exact frame, not on the nearest 1.12 s chunk boundary. The log lists each refresh
-with its pause length. On the 71 s sample, whose pauses between 20 and 40 s are all
-under 0.4 s, the one refresh lands at 51.2 s, in the middle of a 0.44 s pause.
+with its pause length. On the 57 s sample, the one refresh lands at 52.2 s, in the middle of a
+0.92 s pause.
 
-### What a first test showed (71 s sample, same seed as Lite)
+### What a first test showed (an earlier 71 s voiceover, same seed as Lite)
 
-Rendered with the sample portrait (face crop) and the 71 s sample voiceover, continuous,
+Rendered with the sample portrait (face crop) and the template's earlier 71 s sample
+voiceover, continuous,
 and measured with [`tools/analyze_seams.py`](tools/analyze_seams.py):
 
 | | Pro | Lite (for comparison) |
@@ -164,7 +165,7 @@ complete!`**.
 1. Open ComfyUI (port 8188), open the **Workflows** sidebar and choose
    **`flashhead_pro_1_continuous`**.
 2. **Load Portrait** and **Load Voiceover** open on the bundled samples
-   (`sample_portrait.png`, `sample_voiceover.mp3`, 71 s), so the first run needs no
+   (`sample_portrait.png`, `sample_voiceover.mp3`, 57 s), so the first run needs no
    uploads.
 3. **Run.** One run renders the whole voiceover; the first run also loads the model and,
    with `compile` on, spends a minute or two warming up. The Render node shows the
@@ -258,7 +259,7 @@ video depending on memory pressure, which says nothing about a pod.
 
 ## What has and hasn't been verified
 
-Verified: FlashHead Pro rendering the full 71 s sample (continuous, face crop) on a
+Verified: FlashHead Pro rendering a full 71 s voiceover (continuous, face crop) on a
 local RTX 3080 Laptop GPU (PyTorch 2.10 cu128, diffusers 0.36.0, OpenCV 5.0), through
 the same engine the nodes use, with the seam and drift measurements above; the shipped
 Pro workflow run in ComfyUI v0.35.0; the Wan 2.1 VAE checkpoint's format check. On CPU in CI: the
@@ -286,7 +287,7 @@ several minutes.
 │       ├── engine.py                      # chunk loop, anchors, face crop, ffmpeg output
 │       ├── storage.py                     # Network Volume preflight
 │       └── face_detection_yunet_2023mar.onnx
-├── samples/                               # sample portrait + 71 s voiceover the workflows open on
+├── samples/                               # sample portrait + 57 s voiceover the workflows open on
 ├── tools/
 │   ├── build_workflow.py                  # generates the workflow JSONs; re-run after edits
 │   ├── render_local.py                    # the engine without ComfyUI

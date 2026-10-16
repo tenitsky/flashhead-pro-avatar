@@ -260,7 +260,7 @@ MODELS_DIR="$COMFYUI_PATH/models/flashhead"
 mkdir -p "$MODELS_DIR/SoulX-FlashHead-1_3B" "$MODELS_DIR/wav2vec2-base-960h"
 # The batch workflow renders every voiceover dropped in here, one video per file.
 mkdir -p "$COMFYUI_PATH/input/batch_audio"
-# Sample portrait and voiceover (71 s) the workflows open on. Never overwrites a file
+# Sample portrait and voiceover (57 s) the workflows open on. Never overwrites a file
 # of the same name already on the volume.
 for sample in "$SCRIPT_DIR/samples/"*; do
   [ -e "$COMFYUI_PATH/input/$(basename "$sample")" ] || cp "$sample" "$COMFYUI_PATH/input/"
@@ -428,6 +428,8 @@ c81d4c93b4aa76ec0b81980642bda0a9eeab58376e4f071938bd19a6417c7fa7 flashhead_pro_2
 15b44e38f49269b564a5ec323979c6b30fb9018c1ad1521e8df309891dce525b flashhead_pro_1_continuous.json
 ab811dcb25afd6541e0d771e0f9592496f38df21d9ab2f8105629df6c5652364 flashhead_pro_2_refresh_at_pauses.json
 d8e8261cbd36cf363bd9dcfdf61000b227697b6ca67b9aa3ea1e57d124bf90f8 flashhead_pro_3_batch_folder_refresh_at_pauses.json
+234bb884ec51c7c3855af2992fa318fd8c000b587e3781a004736fef935ef7b3 flashhead_pro_1_continuous.json
+f31abc766c52d95587ef76db64f2eec3da88bb4c30d6d726be377b61b5d13ddb flashhead_pro_2_batch_folder_continuous.json
 "
 while read -r sum name; do
   [ -n "$name" ] && [ -f "$WF_DEST/$name" ] || continue

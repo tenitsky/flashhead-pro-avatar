@@ -25,7 +25,7 @@
    },
    "title": "Start here",
    "widgets_values": [
-    "# FlashHead Pro - Continuous\n\nEvery 1.12 s chunk continues from the previous one's last 5 frames, as upstream does: seamless, never reset to the portrait. Over the 71 s sample it did not drift.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait; any portrait works, the face is found and framed automatically.\n2. **Load Voiceover** - opens on the 71 s sample; any length works.\n3. **Run.** One run renders the whole video and shows it on the Render node.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
+    "# FlashHead Pro - Continuous\n\nEvery 1.12 s chunk continues from the previous one's last 5 frames, as upstream does: seamless, never reset to the portrait. In a 71 s test it did not drift.\n\n**Red nodes are the ones you set.** Stages run left to right with a note under each.\n\n1. **Load Portrait** - opens on the sample portrait; any portrait works, the face is found and framed automatically.\n2. **Load Voiceover** - opens on the 57 s sample; any length works.\n3. **Run.** One run renders the whole video and shows it on the Render node.\n\nFull instructions: https://github.com/tenitsky/flashhead-pro-avatar"
    ],
    "color": "#222",
    "bgcolor": "#000"
@@ -103,7 +103,7 @@
    },
    "title": "About stage 3",
    "widgets_values": [
-    "## 3. Render\n\n**anchor: continuous (upstream)**. Every 1.12 s chunk continues from the previous one's last 5 frames, as upstream does: seamless, never reset to the portrait. Over the 71 s sample it did not drift.\n\nThe video is saved as `output/<audio name>_pro_continuous.mp4`, with your original audio. The portrait is framed as FlashHead was trained: a 512 x 512 square twice the face width around the face. Timing (seconds of rendering per second of video, peak VRAM) is printed in the log.\n\n**Watch it as it renders.** The Render node shows the newest frame live, and the video is saved in ~30 s parts you can play in JupyterLab while the rest renders: `output/flashhead_parts/<name>/part_001.mp4`, ... **Cancel** to stop; queue again with the same inputs and it resumes after the last finished part. The parts are removed when the video is done.\n\n**color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two renders can be compared on identical noise."
+    "## 3. Render\n\n**anchor: continuous (upstream)**. Every 1.12 s chunk continues from the previous one's last 5 frames, as upstream does: seamless, never reset to the portrait. In a 71 s test it did not drift.\n\nThe video is saved as `output/<audio name>_pro_continuous.mp4`, with your original audio. The portrait is framed as FlashHead was trained: a 512 x 512 square twice the face width around the face. Timing (seconds of rendering per second of video, peak VRAM) is printed in the log.\n\n**Watch it as it renders.** The Render node shows the newest frame live, and the video is saved in ~30 s parts you can play in JupyterLab while the rest renders: `output/flashhead_parts/<name>/part_001.mp4`, ... **Cancel** to stop; queue again with the same inputs and it resumes after the last finished part. The parts are removed when the video is done.\n\n**color_correction** pulls each chunk's colours toward the portrait (upstream 1.0). **seed** is fixed, so two renders can be compared on identical noise."
    ],
    "color": "#222",
    "bgcolor": "#000"
