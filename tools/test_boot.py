@@ -34,6 +34,11 @@ class BootTests(unittest.TestCase):
         self.repo.mkdir()
         self.workspace = self.base / "workspace"
         self.workspace.mkdir()
+        # A Global Volume mounted beside /workspace, and the container-disk install
+        # setup uses with a Global Volume.
+        self.alternate = self.base / "workspace-global"
+        self.local = self.base / "container-disk"
+        self.local_comfy = self.local / "ComfyUI"
         self.comfy = self.workspace / "runpod-slim/ComfyUI"
         self.upstream = self.comfy / "custom_nodes/comfyui-flashhead/SoulX-FlashHead"
         self.baked = self.base / "baked"
@@ -67,6 +72,7 @@ class BootTests(unittest.TestCase):
             ("/workspace", str(self.workspace)),
             ("/start.sh", str(self.start)),
             ("/opt/comfyui-baked", str(self.baked)),
+            ("/opt/flashhead-local", str(self.local)),
             ("/opt/comfyui-runtime-constraints.txt", str(self.constraints)),
         ):
             setup = setup.replace(original, replacement)
@@ -157,45 +163,110 @@ if [ -n "${BOOT_FAIL_MODEL:-}" ] && [[ "$destination" = *"$BOOT_FAIL_MODEL"* ]];
   exit 1  # A full-sized partial must not be promoted after a failed transfer.
 fi
 """)
-        self.make_executable(self.start, """#!/bin/bash
+        # A Global Volume has no rename, hard links, symlinks or permission bits. The
+        # fixture refuses all four on it, in Python and for mv/ln, so a setup step that
+        # relied on one fails here instead of on RunPod.
+        real_mv, real_ln = shutil.which("mv"), shutil.which("ln")
+        self.make_executable(self.bin / "mv", """#!/bin/bash
+if [ -n "${BOOT_OBJECT_ROOT:-}" ]; then
+  for arg in "$@"; do
+    case "$(realpath -m -- "$arg")" in
+      "$BOOT_OBJECT_ROOT"|"$BOOT_OBJECT_ROOT"/*) echo "mv: no rename on the Global Volume: $arg" >&2; exit 1 ;;
+    esac
+  done
+fi
+exec """ + shlex.quote(real_mv) + ' "$@"\n')
+        self.make_executable(self.bin / "ln", """#!/bin/bash
+if [ -n "${BOOT_OBJECT_ROOT:-}" ]; then
+  case "$(realpath -m -s -- "${@: -1}")" in
+    "$BOOT_OBJECT_ROOT"|"$BOOT_OBJECT_ROOT"/*) echo "ln: no links on the Global Volume: ${@: -1}" >&2; exit 1 ;;
+  esac
+fi
+exec """ + shlex.quote(real_ln) + ' "$@"\n')
+        self.make_executable(self.start, f"""#!/bin/bash
 set -e
-start_jupyter() {
-  if [ "${JUPYTER_DISABLE_AUTH:-}" = "true" ]; then JUPYTER_TOKEN=""; fi
-}
+COMFYUI_DIR="{self.workspace}/runpod-slim/ComfyUI"
+DB_FILE="{self.workspace}/runpod-slim/filebrowser.db"
+start_jupyter() {{
+  if [ "${{JUPYTER_DISABLE_AUTH:-}}" = "true" ]; then JUPYTER_TOKEN=""; fi
+}}
+export START_SCRIPT="$0" START_COMFYUI_DIR="$COMFYUI_DIR" START_DB_FILE="$DB_FILE"
 # The image service boundary is replaced, not the template's setup script.
 python3 - <<'PY'
 import json, os
 from pathlib import Path
 keys = ('COMFYUI_PATH', 'HF_HOME', 'JUPYTER_CONFIG_DIR', 'JUPYTER_DATA_DIR',
-        'JUPYTER_RUNTIME_DIR', 'IPYTHONDIR', 'JUPYTER_DISABLE_AUTH')
-Path(os.environ['BOOT_HANDOFF']).write_text(json.dumps({k: os.environ.get(k) for k in keys}))
+        'JUPYTER_RUNTIME_DIR', 'IPYTHONDIR', 'JUPYTER_DISABLE_AUTH', 'START_SCRIPT',
+        'START_COMFYUI_DIR', 'START_DB_FILE', 'FB_DATABASE')
+Path(os.environ['BOOT_HANDOFF']).write_text(json.dumps({{k: os.environ.get(k) for k in keys}}))
 PY
 """)
 
         (self.site / "sitecustomize.py").write_text("""import os
 from pathlib import Path
 
+import errno
+
 workspace = Path(os.environ['BOOT_WORKSPACE']).resolve()
+alternate = Path(str(workspace) + '-global')
+# network: a Network Volume at /workspace. global: a Global Volume there.
+# global-alternate: a Global Volume at /workspace-global, nothing at /workspace.
+mounts = os.environ.get('BOOT_MOUNTS', 'network')
+object_root = {'global': workspace, 'global-alternate': alternate}.get(mounts)
 read_text = Path.read_text
-chmod = os.chmod
+chmod, link, symlink, rename, replace = os.chmod, os.link, os.symlink, os.rename, os.replace
 
 def fixture_read_text(path, *args, **kwargs):
     if path == Path('/proc/self/mountinfo'):
         text = '1 0 0:1 / / rw - overlay overlay rw\\n'
         if os.environ.get('BOOT_MISSING_VOLUME') != '1':
-            text += f'2 1 0:2 / {workspace} rw - fuse.vstorage volume rw\\n'
+            if mounts == 'network':
+                text += f'2 1 0:2 / {workspace} rw - fuse.vstorage volume rw\\n'
+            else:
+                text += f'2 1 0:2 / {object_root} rw - fuse volume rw\\n'
         return text
     return read_text(path, *args, **kwargs)
 
+def on_object_volume(path, follow=True):
+    if object_root is None or isinstance(path, int):
+        return False
+    path = Path(os.fsdecode(path))
+    path = path.resolve() if follow else path.parent.resolve() / path.name
+    return path == object_root or object_root in path.parents
+
+def unsupported(what):
+    raise OSError(errno.EPERM, f'Global Volume fixture: no {what}')
+
 def fixed_workspace_chmod(path, mode, *args, **kwargs):
+    if on_object_volume(path):
+        unsupported('permission bits')
     if not isinstance(path, int):
         resolved = Path(os.fsdecode(path)).resolve()
         if resolved == workspace or workspace in resolved.parents:
             mode = 0o777
     return chmod(path, mode, *args, **kwargs)
 
+def object_link(src, dst, *args, **kwargs):
+    if on_object_volume(src) or on_object_volume(dst, follow=False):
+        unsupported('hard links')
+    return link(src, dst, *args, **kwargs)
+
+def object_symlink(src, dst, *args, **kwargs):
+    if on_object_volume(dst, follow=False):
+        unsupported('symlinks')
+    return symlink(src, dst, *args, **kwargs)
+
+def object_rename(function):
+    def wrapped(src, dst, *args, **kwargs):
+        if on_object_volume(src, follow=False) or on_object_volume(dst, follow=False):
+            unsupported('rename')
+        return function(src, dst, *args, **kwargs)
+    return wrapped
+
 Path.read_text = fixture_read_text
 os.chmod = fixed_workspace_chmod
+os.link, os.symlink = object_link, object_symlink
+os.rename, os.replace = object_rename(rename), object_rename(replace)
 """, encoding="utf-8", newline="\n")
         # The image's PyTorch, as setup's GPU check sees it, and the packages the
         # dependency check imports.
@@ -218,7 +289,7 @@ cuda = SimpleNamespace(is_available=lambda: os.environ.get("BOOT_GPU", "1") == "
 
         self.env = dict(os.environ)
         for key in ("COMFYUI_PATH", "HF_HOME", "HF_TOKEN", "JUPYTER_NO_AUTH",
-                    "FLASHHEAD_REF", "COMFYUI_VENV_NAME"):
+                    "FLASHHEAD_REF", "COMFYUI_VENV_NAME", "FLASHHEAD_STORAGE"):
             self.env.pop(key, None)
         self.env.update({
             "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -247,6 +318,118 @@ cuda = SimpleNamespace(is_available=lambda: os.environ.get("BOOT_GPU", "1") == "
 
     def lines(self, path):
         return path.read_text().splitlines() if path.exists() else []
+
+    def boot_global(self, alternate=False, **overrides):
+        root = self.alternate if alternate else self.workspace
+        if alternate:
+            self.alternate.mkdir(exist_ok=True)
+        return self.boot(BOOT_MOUNTS="global-alternate" if alternate else "global",
+                         BOOT_OBJECT_ROOT=str(root.resolve()), **overrides)
+
+    def assert_global_boot(self, result, volume_root):
+        """A completed Global Volume boot: data on the volume, software on the disk."""
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"Storage: global volume at {volume_root}", result.stdout)
+        volume = volume_root / "runpod-slim/ComfyUI"
+        models = volume / "models/flashhead"
+        self.assertEqual({p.relative_to(models).as_posix() for p in models.rglob("*")
+                          if p.is_file()}, MODEL_PATHS)
+        for w in builder.WORKFLOWS:
+            self.assertTrue((volume / "user/default/workflows" / w["path"]).is_file(), w["path"])
+        for sample in (ROOT / "samples").iterdir():
+            self.assertTrue((volume / "input" / sample.name).is_file(), sample.name)
+        self.assertTrue((volume / "input/batch_audio").is_dir())
+        for folder in ("models", "input", "output", "user/default"):
+            link = self.local_comfy / folder
+            self.assertTrue(link.is_symlink(), folder)
+            self.assertEqual(link.resolve(), (volume / folder).resolve())
+        # ComfyUI, its venv, the node pack and upstream's code never touch the volume.
+        self.assertTrue((self.local_comfy / "main.py").is_file())
+        self.assertTrue((self.local_comfy / ".venv-cu128/.flashhead-pro-avatar-deps").is_file())
+        upstream = self.local_comfy / "custom_nodes/comfyui-flashhead/SoulX-FlashHead"
+        self.assertEqual((upstream / ".git/HEAD_SHA").read_text().strip(), builder.FLASHHEAD_REF)
+        self.assertEqual(sorted(p.name for p in volume.iterdir()),
+                         ["input", "models", "output", "user"])
+        self.assertFalse(list(volume_root.rglob("*.part")))
+        self.assertFalse(list(volume_root.rglob(".flashhead-*")))
+        # Every download was staged on the container disk, which is empty afterwards.
+        stage = self.local / "downloads"
+        for destination in self.lines(self.download_log):
+            self.assertIn(stage, Path(destination).parents)
+        self.assertEqual(list(stage.iterdir()), [])
+        state = json.loads(self.handoff.read_text())
+        self.assertEqual(state["START_SCRIPT"], str(self.local / "image-start.sh"))
+        self.assertEqual(state["START_COMFYUI_DIR"], str(self.local_comfy))
+        self.assertEqual(state["COMFYUI_PATH"], str(self.local_comfy))
+        self.assertEqual(state["FB_DATABASE"], str(self.local / "filebrowser.db"))
+        for key in ("JUPYTER_CONFIG_DIR", "JUPYTER_DATA_DIR", "IPYTHONDIR", "HF_HOME"):
+            self.assertIn(self.local, Path(state[key]).parents, key)
+        # The image's own start script is run as a copy, never edited.
+        self.assertIn(f'COMFYUI_DIR="{self.workspace}/runpod-slim/ComfyUI"', self.start.read_text())
+        return volume
+
+    def test_global_volume_first_boot_and_fresh_container(self):
+        first = self.boot_global()
+        volume = self.assert_global_boot(first, self.workspace)
+        self.assertIn("Global Volume ready", first.stdout)
+        self.assertEqual(len(self.lines(self.download_log)), len(MODEL_PATHS))
+        self.assertEqual(len(self.lines(self.pip_log)), 1)
+        for sample in (ROOT / "samples").iterdir():
+            self.assertEqual((volume / "input" / sample.name).read_bytes(), sample.read_bytes())
+        edited = volume / "user/default/workflows" / builder.WORKFLOWS[0]["path"]
+        edited.write_text('{"edited_by_user": true}\n')
+        render = volume / "output/my_render.mp4"
+        render.write_bytes(b"video")
+        # Restart with the container disk kept: everything is reused.
+        self.assert_global_boot(self.boot_global(), self.workspace)
+        self.assertEqual(len(self.lines(self.download_log)), len(MODEL_PATHS))
+        self.assertEqual(len(self.lines(self.pip_log)), 1)
+        # A fresh container disk: ComfyUI and its packages are set up again, the models
+        # and user files are reused.
+        shutil.rmtree(self.local)
+        self.assert_global_boot(self.boot_global(), self.workspace)
+        self.assertEqual(len(self.lines(self.download_log)), len(MODEL_PATHS))
+        self.assertEqual(len(self.lines(self.pip_log)), 2)
+        self.assertEqual(edited.read_text(), '{"edited_by_user": true}\n')
+        self.assertEqual(render.read_bytes(), b"video")
+
+    def test_global_volume_reuses_models_copied_from_a_network_volume(self):
+        # RunPod's migration copies the whole Network Volume over with rsync.
+        self.assertEqual(self.boot().returncode, 0)
+        result = self.boot_global()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.lines(self.download_log)), len(MODEL_PATHS),
+                         "migrated models must be reused")
+        self.assertEqual(json.loads(self.handoff.read_text())["START_COMFYUI_DIR"],
+                         str(self.local_comfy))
+
+    def test_global_volume_beside_an_empty_workspace(self):
+        self.assert_global_boot(self.boot_global(alternate=True), self.alternate)
+        self.assertEqual((self.workspace / "global-volume").resolve(), self.alternate.resolve())
+
+    def test_global_volume_failed_download_never_hands_off(self):
+        result = self.boot_global(BOOT_FAIL_MODEL="diffusion_pytorch_model.safetensors")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("FATAL: one or more model downloads failed", result.stdout)
+        self.assertFalse(self.handoff.exists())
+        self.assertFalse(list(self.workspace.rglob("diffusion_pytorch_model.safetensors*")))
+        # The partial stays on the container disk for wget to resume.
+        self.assertTrue(list((self.local / "downloads").glob("*diffusion_pytorch_model.safetensors.part")))
+
+    def test_global_volume_with_an_unknown_start_script_stops_before_downloads(self):
+        self.start.write_text("#!/bin/bash\necho different image\n")
+        result = self.boot_global()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not set COMFYUI_DIR", result.stdout)
+        self.assertFalse(self.handoff.exists())
+        self.assertEqual(self.lines(self.download_log), [])
+
+    def test_network_mode_forced_on_a_global_volume_fails_its_posix_check(self):
+        result = self.boot_global(FLASHHEAD_STORAGE="network")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("failed the POSIX check", result.stderr)
+        self.assertFalse(self.comfy.exists())
+        self.assertFalse(self.handoff.exists())
 
     def test_first_boot_and_restart_preserve_user_files_and_reuse_everything(self):
         first = self.boot()

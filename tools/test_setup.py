@@ -34,7 +34,8 @@ class DownloadTests(unittest.TestCase):
                     + "DEST=" + shlex.quote((self.directory / "model.safetensors").as_posix()) + "\n"
                     + "COMFYUI_PATH=" + shlex.quote((self.directory / "ComfyUI").as_posix()) + "\n"
                     + "MODELS_DIR=" + shlex.quote((self.directory / "ComfyUI/models/flashhead").as_posix()) + "\n"
-                    + "HF_TOKEN=''\nHF_BIN=''\n")
+                    + "STAGE=" + shlex.quote((self.directory / "stage").as_posix()) + "\n"
+                    + "HF_TOKEN=''\nHF_BIN=''\nSTAGE_DIR=''\n")
         script.write_text(preamble + HELPERS + "\n" + command, encoding="utf-8", newline="\n")
         result = subprocess.run([BASH, str(script)], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -106,6 +107,62 @@ fetch_url() { echo 'Unexpected wget call' >&2; exit 2; }
 download_hf Soul-AILab/SoulX-FlashHead-1_3B Model_Pro/diffusion_pytorch_model.safetensors SoulX-FlashHead-1_3B
 file_ok "$MODELS_DIR/SoulX-FlashHead-1_3B/Model_Pro/diffusion_pytorch_model.safetensors"
 test -z "$(ls -A "$MODELS_DIR/SoulX-FlashHead-1_3B/Model_Pro" | grep -v diffusion_pytorch_model)"
+''')
+
+    # Global Volume: staged on the container disk, copied to the final name, never
+    # renamed on the volume.
+    GLOBAL = '''
+STAGE_DIR="$STAGE"; mkdir -p "$STAGE_DIR"
+mv() { echo 'Unexpected rename' >&2; exit 2; }
+wget() { while [ "$1" != -O ]; do shift; done; printf '%s\\n' "$2" > "$DEST.wget"; cat "$FIXTURE" > "$2"; }
+'''
+
+    def test_global_transfer_is_staged_and_copied(self):
+        self.run_script(self.GLOBAL + '''
+fetch_url "$DEST" https://example.invalid/model
+file_ok "$DEST"
+case "$(cat "$DEST.wget")" in "$STAGE"/*model.safetensors.part) ;; *) exit 3 ;; esac
+test -z "$(ls -A "$STAGE")"
+test ! -e "$DEST.part"
+''')
+
+    def test_global_staging_names_keep_same_named_files_apart(self):
+        # Both repos have a config.json: their staged copies must not share a name.
+        self.run_script(self.GLOBAL + '''
+wget() { while [ "$1" != -O ]; do shift; done; printf '%s\\n' "$2" >> "$DEST.wget"; return 1; }
+fetch_url "$MODELS_DIR/a/config.json" https://example.invalid/a || true
+fetch_url "$MODELS_DIR/b/config.json" https://example.invalid/b || true
+test "$(sort -u "$DEST.wget" | wc -l)" = 2
+''')
+
+    def test_global_failed_transfer_keeps_staged_partial_for_resume(self):
+        self.run_script(self.GLOBAL + '''
+wget() { while [ "$1" != -O ]; do shift; done; head -c 5000 "$FIXTURE" > "$2"; return 1; }
+if fetch_url "$DEST" https://example.invalid/model; then exit 1; fi
+test ! -e "$DEST"
+test -n "$(ls "$STAGE"/*model.safetensors.part)"
+''')
+
+    def test_global_copy_that_does_not_verify_is_not_accepted(self):
+        self.run_script(self.GLOBAL + '''
+cp() { command cp "$@"; truncate -s -1 "${@: -1}"; }
+if fetch_url "$DEST" https://example.invalid/model; then exit 1; fi
+if file_ok "$DEST"; then exit 1; fi
+file_ok "$(ls "$STAGE"/*model.safetensors.part)"
+''')
+
+    def test_global_fast_downloader_stages_on_container_disk(self):
+        self.run_script(self.GLOBAL + '''
+HF_BIN=fake_hf
+fake_hf() {
+  case "$5" in "$STAGE"/*) ;; *) echo "staged outside the container disk: $5" >&2; return 1 ;; esac
+  mkdir -p "$5/$(dirname "$3")"
+  cat "$FIXTURE" > "$5/$3"
+}
+fetch_url() { echo 'Unexpected wget call' >&2; exit 2; }
+download_hf Soul-AILab/SoulX-FlashHead-1_3B Model_Pro/diffusion_pytorch_model.safetensors SoulX-FlashHead-1_3B
+file_ok "$MODELS_DIR/SoulX-FlashHead-1_3B/Model_Pro/diffusion_pytorch_model.safetensors"
+test -z "$(ls -A "$STAGE")"
 ''')
 
     def test_failed_download_keeps_original_file(self):

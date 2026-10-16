@@ -4,9 +4,10 @@ Turn **one portrait and a voiceover of any length** into a 512 x 512, 25 fps tal
 
 ## Storage
 
-Attach your own **Network Volume at /workspace** when deploying (**50 GB recommended**). The container disk is 5 GB and the Volume disk 0 GB.
+Attach your own volume at /workspace when deploying. Either kind works; setup detects which:
 
-ComfyUI, models, uploads, workflows and renders stay on the volume. Reattach it in its datacenter when replacing a pod; later boots skip the downloads.
+- **Network Volume** (**50 GB recommended**): ComfyUI, models, uploads, workflows and renders stay on the volume. Reattach it in its datacenter when replacing a pod; later boots skip the downloads.
+- **Global Volume** (beta, any datacenter): models, uploads, workflows and renders stay on the volume; ComfyUI itself runs from the container disk and is set up again on each fresh container (a few minutes). Keep the container disk at **20 GB**: first-boot downloads are staged there. Let the first pod finish downloading before starting others.
 
 ## Connect
 

@@ -12,7 +12,52 @@ if [ "$COMFYUI_PATH" != /workspace/runpod-slim/ComfyUI ]; then
   echo "FATAL: this image's /start.sh uses /workspace/runpod-slim/ComfyUI. Leave COMFYUI_PATH unset."
   exit 1
 fi
-python3 "$SCRIPT_DIR/custom_nodes/comfyui-flashhead/storage.py" preflight "$COMFYUI_PATH"
+
+# The attached volume decides the layout (FLASHHEAD_STORAGE=network|global overrides):
+#   network  a regional Network Volume at /workspace holds everything.
+#   global   a Global Volume is object storage: no atomic rename, hard links, file
+#            locks or permission bits, so no virtualenv or git checkout can live on it.
+#            ComfyUI, its venv and custom nodes run from the container disk and are
+#            set up again on each fresh container; models, inputs, outputs and saved
+#            workflows stay on the volume, at the paths a Network Volume uses.
+STORAGE_PY="$SCRIPT_DIR/custom_nodes/comfyui-flashhead/storage.py"
+STORAGE="$(python3 "$STORAGE_PY" detect)" || exit 1
+read -r STORAGE_MODE DATA_ROOT <<< "$STORAGE"
+LOCAL_ROOT=/opt/flashhead-local
+if [ "$STORAGE_MODE" = global ]; then
+  python3 "$STORAGE_PY" preflight-global "$DATA_ROOT"
+  VOLUME_COMFY="$DATA_ROOT/runpod-slim/ComfyUI"
+  COMFYUI_PATH="$LOCAL_ROOT/ComfyUI"
+  # Settings, caches and download staging: container disk.
+  STATE_DIR="$LOCAL_ROOT"
+  STAGE_DIR="$LOCAL_ROOT/downloads"
+  mkdir -p "$STAGE_DIR"
+  # The image's start.sh fixes ComfyUI (and so its venv) under /workspace, which here
+  # can be the Global Volume. Setup ends by running a copy pointed at the
+  # container-disk install, with FileBrowser's database (BoltDB: memory-mapped and
+  # locked) there too. Everything else, including comfyui_args.txt on the volume, is
+  # the image's own. Checked now, before any download.
+  IMAGE_START="$LOCAL_ROOT/image-start.sh"
+  sed -e "s#^COMFYUI_DIR=\"/workspace/runpod-slim/ComfyUI\"\$#COMFYUI_DIR=\"$COMFYUI_PATH\"#" \
+      -e "s#^DB_FILE=\"/workspace/runpod-slim/filebrowser.db\"\$#DB_FILE=\"$LOCAL_ROOT/filebrowser.db\"#" \
+      /start.sh > "$IMAGE_START"
+  if ! grep -qx "COMFYUI_DIR=\"$COMFYUI_PATH\"" "$IMAGE_START"; then
+    echo "FATAL: this image's /start.sh does not set COMFYUI_DIR=\"/workspace/runpod-slim/ComfyUI\","
+    echo "         so it cannot be pointed at the container disk for a Global Volume."
+    echo "         Use runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8, or a Network Volume."
+    exit 1
+  fi
+  if grep -qx "DB_FILE=\"$LOCAL_ROOT/filebrowser.db\"" "$IMAGE_START"; then
+    export FB_DATABASE="$LOCAL_ROOT/filebrowser.db"
+  fi
+  chmod +x "$IMAGE_START"
+else
+  python3 "$STORAGE_PY" preflight "$COMFYUI_PATH"
+  STATE_DIR=/workspace
+  STAGE_DIR=""
+  IMAGE_START=""
+fi
+echo "Storage: $STORAGE_MODE volume at $DATA_ROOT"
 
 # Apply before the image starts Jupyter. The image's /start.sh runs JupyterLab
 # without a token when JUPYTER_DISABLE_AUTH=true, uses JUPYTER_PASSWORD as the
@@ -48,10 +93,12 @@ if [ "${#packages[@]}" -gt 0 ]; then
 fi
 
 # Jupyter serves /workspace in the base image. Keep its settings and user data on
-# that persistent volume too; /root belongs to the disposable container disk.
-export JUPYTER_CONFIG_DIR=/workspace/.jupyter
-export JUPYTER_DATA_DIR=/workspace/.local/share/jupyter
-export IPYTHONDIR=/workspace/.ipython
+# that persistent volume too; /root belongs to the disposable container disk. On a
+# Global Volume they stay on the container disk: IPython keeps its history in SQLite,
+# which needs the file locking that volume lacks.
+export JUPYTER_CONFIG_DIR="$STATE_DIR/.jupyter"
+export JUPYTER_DATA_DIR="$STATE_DIR/.local/share/jupyter"
+export IPYTHONDIR="$STATE_DIR/.ipython"
 mkdir -p "$JUPYTER_CONFIG_DIR" "$JUPYTER_DATA_DIR" "$IPYTHONDIR"
 
 # Network Volumes can expose fixed permissions. Jupyter's cookie secrets and
@@ -71,7 +118,8 @@ try:
         stream.write("Jupyter runtime permissions verified")
 finally:
     probe.unlink(missing_ok=True)
-print(f"Jupyter runtime ready at {probe.parent}; notebooks and settings remain on /workspace.")
+print(f"Jupyter runtime ready at {probe.parent}; notebooks stay in /workspace, "
+      f"settings in {os.environ['JUPYTER_CONFIG_DIR']}.")
 PY
 
 # SoulX-FlashHead has no ComfyUI nodes of its own. This repo's comfyui-flashhead pack
@@ -87,7 +135,7 @@ FLASHHEAD_REF="${FLASHHEAD_REF:-9bc03de06bb0de82cd6bc477804512ae06144bf2}"
 # one: anonymous requests are rate-limited (~120/h vs ~1000/h) and slower.
 HF_TOKEN="${HF_TOKEN:-}"
 [ -n "$HF_TOKEN" ] && export HF_TOKEN || echo "NOTE: HF_TOKEN not set - downloads may be slower and rate-limited."
-export HF_HOME="${HF_HOME:-/workspace/.cache/huggingface}"
+export HF_HOME="${HF_HOME:-$STATE_DIR/.cache/huggingface}"
 
 # Self-healing check prevents directory collisions and fixes broken folders
 if [ ! -f "$COMFYUI_PATH/main.py" ]; then
@@ -104,6 +152,16 @@ if [ ! -f "$COMFYUI_PATH/main.py" ]; then
   echo "FATAL: no ComfyUI at $COMFYUI_PATH and /opt/comfyui-baked did not provide one."
   echo "       Check the container image."
   exit 1
+fi
+if [ "$STORAGE_MODE" = global ]; then
+  echo "Linking ComfyUI's data folders to the Global Volume..."
+  python3 "$STORAGE_PY" link-global "$COMFYUI_PATH" "$VOLUME_COMFY"
+  # Jupyter and FileBrowser serve /workspace; show the volume there when it is
+  # mounted elsewhere.
+  if [ "$DATA_ROOT" != /workspace ]; then
+    mkdir -p /workspace
+    ln -sfn "$DATA_ROOT" /workspace/global-volume
+  fi
 fi
 echo "ComfyUI: $COMFYUI_PATH"
 
@@ -130,8 +188,8 @@ if build == "none":
              "container image to runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8.")
 if not torch.cuda.is_available():
     sys.exit(f"FATAL: CUDA {build} PyTorch cannot use this GPU: the host driver is too "
-             "old for it. Redeploy on another GPU or datacenter; the same Network "
-             "Volume can be reattached.")
+             "old for it. Redeploy on another GPU or datacenter; the same "
+             "volume can be reattached.")
 print(f"GPU: {torch.cuda.get_device_name(0)}")
 PY
 then
@@ -275,7 +333,7 @@ done
 # Its Xet backend is much faster than wget on multi-GB files but cannot resume a
 # partial file, so wget stays as the fallback.
 echo "Installing fast downloader (optional)..."
-HF_VENV="/workspace/.hf-cli"
+HF_VENV="$STATE_DIR/.hf-cli"
 HF_BIN=""
 if [ ! -x "$HF_VENV/bin/hf" ]; then
   if python3 -m venv "$HF_VENV" 2>/dev/null; then
@@ -329,14 +387,27 @@ except (OSError, ValueError, KeyError, TypeError, struct.error):
 PY
 }
 
+# Move a verified file to its final name. On a Network Volume files are staged beside
+# the destination, so this is a rename, not a multi-GB copy. On a Global Volume they are
+# staged on the container disk (the volume has neither the downloader's file locks nor
+# atomic rename) and copied straight to the final name, which counts only once file_ok
+# accepts the copy; the staged file is kept until then.
+put_in_place() {
+  # $1 = verified staged file, $2 = destination
+  if [ -z "${STAGE_DIR:-}" ]; then
+    mv -f "$1" "$2"
+    return
+  fi
+  cp -f "$1" "$2" && file_ok "$2" && rm -f "$1"
+}
+
 hf_fast() {
   # $1 = repo, $2 = path inside the repo, $3 = destination file
   local repo="$1" rpath="$2" dest="$3" tmp
   [ -n "$HF_BIN" ] || return 1
-  # Stage beside the destination so the final move is a rename, not a multi-GB copy.
-  tmp="$(mktemp -d "$(dirname "$dest")/.hfdl.XXXXXX")" || return 1
+  tmp="$(mktemp -d "${STAGE_DIR:-$(dirname "$dest")}/.hfdl.XXXXXX")" || return 1
   if HF_XET_HIGH_PERFORMANCE=1 "$HF_BIN" download "$repo" "$rpath" --local-dir "$tmp"; then
-    file_ok "$tmp/$rpath" && mv -f "$tmp/$rpath" "$dest"
+    file_ok "$tmp/$rpath" && put_in_place "$tmp/$rpath" "$dest"
   fi
   rm -rf "$tmp"
   file_ok "$dest"
@@ -345,13 +416,18 @@ hf_fast() {
 fetch_url() {
   # $1 = destination file, $2 = URL
   local dest="$1" url="$2" part="$1.part"
+  # Staged on the container disk, named after the path under models/flashhead: two
+  # repos each have a config.json.
+  if [ -n "${STAGE_DIR:-}" ]; then
+    part="$STAGE_DIR/$(printf '%s' "${dest#"$MODELS_DIR"/}" | tr '/:' '__').part"
+  fi
   if [ -n "$HF_TOKEN" ]; then
     wget -c -q --show-progress --tries=3 --read-timeout=120 \
       --header="Authorization: Bearer $HF_TOKEN" -O "$part" "$url" || return 1
   else
     wget -c -q --show-progress --tries=3 --read-timeout=120 -O "$part" "$url" || return 1
   fi
-  file_ok "$part" && mv -f "$part" "$dest"
+  file_ok "$part" && put_in_place "$part" "$dest"
 }
 
 download_hf() {
@@ -379,6 +455,19 @@ download_hf() {
 # 3. Model downloads (~6.9 GB)
 # -------------------------------------------------------------------
 FAILED=0
+
+# Global Volume: each file is staged on the container disk first (the largest is
+# 6 GB). Later boots need no staging space at all.
+if [ -n "$STAGE_DIR" ]; then
+  free_gb=$(( $(df -Pk "$STAGE_DIR" | awk 'NR==2 {print $4}') / 1024 / 1024 ))
+  echo "Download staging: $STAGE_DIR ($free_gb GB free on the container disk)"
+  if [ "$free_gb" -lt 8 ]; then
+    echo "WARNING: a missing model needs up to 6 GB of staging space on the container disk."
+    echo "         If a download fails with 'No space left on device', set Container"
+    echo "         Disk to 20 GB in the pod settings and restart."
+  fi
+fi
+
 FH_REPO="Soul-AILab/SoulX-FlashHead-1_3B"
 W2V_REPO="facebook/wav2vec2-base-960h"
 
@@ -437,7 +526,7 @@ while read -r sum name; do
   fi
 done <<< "$RETIRED_WORKFLOWS"
 if [ -d "$SCRIPT_DIR/workflows" ]; then
-  # Never overwrite a workflow already edited on the Network Volume.
+  # Never overwrite a workflow already edited on the volume.
   for workflow in "$SCRIPT_DIR/workflows/"*.json; do
     [ -e "$WF_DEST/$(basename "$workflow")" ] || cp "$workflow" "$WF_DEST/"
   done
@@ -448,4 +537,9 @@ fi
 
 # 5. Start ComfyUI using the official RunPod entrypoint
 echo "Setup complete! Handing over to start script..."
+if [ -n "$IMAGE_START" ]; then
+  # The image creates comfyui_args.txt here before starting ComfyUI.
+  mkdir -p /workspace/runpod-slim
+  exec "$IMAGE_START"
+fi
 exec /start.sh

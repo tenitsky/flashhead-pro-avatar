@@ -74,10 +74,13 @@ measurable drift over 71 s. Minutes-long runs are the next test.
 
 On first pod boot, `setup.sh`:
 
-1. Requires a separate POSIX volume at `/workspace`; refuses container-disk or
-   Global Volume working storage
+1. Works out which volume is attached: a **Network Volume** or a **Global Volume**
+   (see [Storage](#storage-network-volume-or-global-volume)); refuses to install on the
+   container disk alone
 2. Copies the baked ComfyUI from `/opt/comfyui-baked` to `/workspace/runpod-slim/ComfyUI`
-   (self-healing, skip-if-present)
+   (self-healing, skip-if-present). With a Global Volume it goes to the container disk
+   instead, and its `models`, `input`, `output` and `user/default` folders link to the
+   volume
 3. Checks that the image's PyTorch has a CUDA build that can use the GPU; stops if not,
    before any download
 4. Installs the `comfyui-flashhead` nodes and **SoulX-FlashHead at a pinned commit**
@@ -90,7 +93,9 @@ On first pod boot, `setup.sh`:
 7. Installs the two workflows into ComfyUI's **Workflows** sidebar
 8. Hands over to `/start.sh` (ComfyUI on port **8188**, JupyterLab on **8888**)
 
-On later boots every step finds its work done and is skipped.
+On later boots every step finds its work done and is skipped. With a Global Volume, a
+fresh container disk repeats steps 2 and 4 (a few minutes: copy ComfyUI, fetch upstream's
+code, install the packages); the models are never downloaded again.
 
 Upstream's `requirements.txt` is **not** installed: it pins gradio, xformers, xfuser and
 mediapipe for its demos and multi-GPU mode, which would disturb the image. On one GPU
@@ -107,7 +112,57 @@ are found with OpenCV's YuNet detector (shipped, MIT licence) instead of mediapi
 
 About **6.9 GB**, all ungated and **all Apache-2.0** (the FlashHead DiT, the Wan 2.1
 VAE and wav2vec2; Pro avoids Lite's Open-RAIL-M LTX VAE). Use **50 GB of Network Volume storage** as a starting
-point for ComfyUI, its environment, models and renders.
+point for ComfyUI, its environment, models and renders. A Global Volume grows by itself.
+
+## Storage: Network Volume or Global Volume
+
+Attach **one** of these at `/workspace` when deploying. Setup detects which it is and
+says so in the log (`Storage: network volume ...` or `Storage: global volume ...`).
+
+| | Network Volume | Global Volume (RunPod beta) |
+|---|---|---|
+| Where pods can run | its datacenter only | any datacenter (GPU pods) |
+| ComfyUI, venv, node pack, upstream code | on the volume | on the container disk, set up again on each fresh container (a few minutes) |
+| Models, inputs, outputs and parts, saved workflows | on the volume | on the volume |
+| Size | fixed, 50 GB recommended | grows by itself |
+| Container disk | 5 GB is enough | **20 GB** (first-boot downloads are staged there) |
+
+A [Global Volume](https://docs.runpod.io/storage/globalvolume/overview) is not tied to a
+datacenter, but it is object storage: **no file locking, atomic rename, hard links or
+permission bits**. A Python virtualenv, a git checkout and pip depend on those, so setup
+splits the work:
+
+| Data | Location with a Global Volume |
+|---|---|
+| ComfyUI, `comfyui-flashhead`, SoulX-FlashHead code, Python environment | container disk: `/opt/flashhead-local/ComfyUI/` |
+| Models | volume: `runpod-slim/ComfyUI/models/flashhead/` |
+| Portraits, voiceovers, `batch_audio/` | volume: `runpod-slim/ComfyUI/input/` |
+| Finished videos and the parts of an unfinished one | volume: `runpod-slim/ComfyUI/output/` |
+| Saved workflows and ComfyUI settings | volume: `runpod-slim/ComfyUI/user/default/` |
+| Render scratch files | container disk (ComfyUI's temp folder) |
+| Jupyter settings, IPython history, download caches, FileBrowser database | container disk: `/opt/flashhead-local/` |
+
+The volume paths are the same as on a Network Volume, so a Network Volume copied over
+with RunPod's suggested `rsync -a /workspace/ /workspace-global/` is picked up as it is.
+Downloads are staged on the container disk, checked, then copied to their final name;
+nothing is renamed or locked on the volume. The image's `/start.sh` fixes ComfyUI at
+`/workspace/runpod-slim/ComfyUI`, so setup runs a copy of it pointed at the
+container-disk install (`/opt/flashhead-local/image-start.sh`); the image file itself is
+not edited.
+
+Things to know:
+
+- **A fresh container disk takes a few minutes longer to boot**: ComfyUI, the node pack
+  and its packages are set up again. Models are not downloaded again.
+- **Custom nodes you add with ComfyUI-Manager do not persist** (container disk).
+- **Run one pod at a time on a fresh volume** until `Setup complete!`; two pods writing
+  the same file on a Global Volume overwrite each other. Give each pod its own voiceovers.
+- Mounted at `/workspace-global` instead (next to a Network Volume, or with its mount path
+  edited), setup finds it there. A Network Volume at `/workspace` takes priority;
+  `FLASHHEAD_STORAGE=global` uses the Global Volume instead, `FLASHHEAD_STORAGE=network`
+  forces the Network Volume layout.
+
+Global Volumes are in beta at RunPod; their behaviour may change.
 
 ## RunPod public template settings
 
@@ -117,10 +172,10 @@ point for ComfyUI, its environment, models and renders.
 | Compute type | **NVIDIA / GPU** |
 | Base image | **`runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8`** |
 | Registry authentication | None; image is public |
-| Container disk | **5 GB** |
+| Container disk | **20 GB** (a Global Volume stages downloads there; a Network Volume needs only 5 GB) |
 | Persistent storage in the public template editor | **Volume disk**, **0 GB** |
 | Template volume mount path | **`/workspace`** |
-| Network Volume at deployment | Each deployer attaches their own at `/workspace`; **50 GB recommended** |
+| Volume at deployment | Each deployer attaches their own **Network Volume** (50 GB recommended) or **Global Volume** at `/workspace` |
 | HTTP ports | **`8188,8888`** (ComfyUI, JupyterLab) |
 | TCP ports | None required; expose `22` only if SSH is wanted |
 | Environment variables | `JUPYTER_NO_AUTH=1`; `HF_TOKEN` optional |
@@ -141,7 +196,9 @@ field (also provided as [`runpod-start.json`](runpod-start.json); readable sourc
 leaves working DNS unchanged. If two checks fail, it saves the original
 `/etc/resolv.conf` under `/tmp/flashhead-pro-avatar-dns.*`, then tries the public resolvers
 `1.1.1.1` and `8.8.8.8`; if resolution still fails, it restores the original and stops
-with a networking error. Git clone failures are retried up to 10 times.
+with a networking error. Git clone failures are retried up to 10 times. It clones
+`main` unless `TEMPLATE_REF` names another branch or tag: `TEMPLATE_REF=v1-network-volume`
+runs the version from before Global Volume support.
 
 ```json
 {
@@ -150,13 +207,13 @@ with a networking error. Git clone failures are retried up to 10 times.
     "-lc"
   ],
   "cmd": [
-    "set -e\ndns_ok() {\n  timeout 10 getent ahostsv4 github.com >/dev/null 2>&1 &&\n  timeout 10 getent ahostsv4 huggingface.co >/dev/null 2>&1\n}\nif ! dns_ok; then\n  echo 'DNS lookup failed; retrying in 3 seconds...'\n  sleep 3\n  if ! dns_ok; then\n    dns_backup=$(mktemp /tmp/flashhead-pro-avatar-dns.XXXXXX)\n    cp /etc/resolv.conf \"$dns_backup\"\n    echo \"Trying public DNS; original resolver saved at $dns_backup\"\n    if { printf 'nameserver 1.1.1.1\\nnameserver 8.8.8.8\\noptions timeout:2 attempts:2\\n'; } > /etc/resolv.conf && dns_ok; then\n      echo 'DNS recovered; continuing setup.'\n    else\n      cat \"$dns_backup\" > /etc/resolv.conf || true\n      echo 'FATAL: DNS still unavailable or resolver is read-only. Check RunPod networking or deploy on another host with the same Network Volume.' >&2\n      exit 1\n    fi\n  fi\nfi\nfor attempt in 1 2 3 4 5 6 7 8 9 10; do\n  repo=$(mktemp -d /tmp/flashhead-pro-avatar.XXXXXX)\n  if git clone --depth 1 https://github.com/tenitsky/flashhead-pro-avatar.git \"$repo\"; then\n    exec bash \"$repo/setup.sh\"\n  fi\n  sleep 5\ndone\necho 'FATAL: unable to clone flashhead-pro-avatar after 10 attempts' >&2\nexit 1\n"
+    "set -e\ndns_ok() {\n  timeout 10 getent ahostsv4 github.com >/dev/null 2>&1 &&\n  timeout 10 getent ahostsv4 huggingface.co >/dev/null 2>&1\n}\nif ! dns_ok; then\n  echo 'DNS lookup failed; retrying in 3 seconds...'\n  sleep 3\n  if ! dns_ok; then\n    dns_backup=$(mktemp /tmp/flashhead-pro-avatar-dns.XXXXXX)\n    cp /etc/resolv.conf \"$dns_backup\"\n    echo \"Trying public DNS; original resolver saved at $dns_backup\"\n    if { printf 'nameserver 1.1.1.1\\nnameserver 8.8.8.8\\noptions timeout:2 attempts:2\\n'; } > /etc/resolv.conf && dns_ok; then\n      echo 'DNS recovered; continuing setup.'\n    else\n      cat \"$dns_backup\" > /etc/resolv.conf || true\n      echo 'FATAL: DNS still unavailable or resolver is read-only. Check RunPod networking or deploy on another host with the same Network Volume.' >&2\n      exit 1\n    fi\n  fi\nfi\nfor attempt in 1 2 3 4 5 6 7 8 9 10; do\n  repo=$(mktemp -d /tmp/flashhead-pro-avatar.XXXXXX)\n  if git clone --depth 1 --branch \"${TEMPLATE_REF:-main}\" https://github.com/tenitsky/flashhead-pro-avatar.git \"$repo\"; then\n    exec bash \"$repo/setup.sh\"\n  fi\n  sleep 5\ndone\necho 'FATAL: unable to clone flashhead-pro-avatar after 10 attempts' >&2\nexit 1\n"
   ]
 }
 ```
 
 For the first launch, check the logs for **`Network Volume workspace ready at
-/workspace`**, then `SoulX-FlashHead: 9bc03de`, the model downloads and **`Setup
+/workspace`** (or **`Global Volume ready at /workspace`**), then `SoulX-FlashHead: 9bc03de`, the model downloads and **`Setup
 complete!`**.
 
 ## After it boots
@@ -254,7 +311,9 @@ video depending on memory pressure, which says nothing about a pod.
 | `FLASHHEAD_REF` | pinned commit | Test a newer SoulX-FlashHead commit. The engine was built against the pin |
 | `FILEBROWSER_PASSWORD` | `adminadmin12` | FileBrowser on port 8080 (user `admin`), if you expose it. **Change the default** |
 | `COMFYUI_PATH` | `/workspace/runpod-slim/ComfyUI` | Leave unset; must match the base image's fixed startup path |
-| `HF_HOME` | `/workspace/.cache/huggingface` | Keeps the HF cache on the volume, not the 5 GB container disk |
+| `HF_HOME` | `/workspace/.cache/huggingface` | Keeps the HF cache on the volume, not the container disk (Global Volume: `/opt/flashhead-local/.cache/huggingface`) |
+| `FLASHHEAD_STORAGE` | `auto` | `network` or `global` overrides which volume setup thinks it has |
+| `TEMPLATE_REF` | `main` | Branch or tag of this repo the start command clones; `v1-network-volume` is the version before Global Volume support |
 
 ## What has and hasn't been verified
 
@@ -268,9 +327,10 @@ parts frame-exact with ffmpeg; the face
 crop on the sample; the stand-ins; the ffmpeg output; that the pinned upstream commit
 still has the API, settings and reset the engine relies on; the workflows against the
 nodes' schemas; and a full first boot and reboot of `setup.sh` against an offline image
-fixture.
+fixture, on a Network Volume and on a simulated Global Volume that refuses rename, hard
+links, symlinks and permission changes.
 
-**Not yet verified:** a boot on a real RunPod pod, `torch.compile` on Linux, and runs of
+**Not yet verified:** a boot on a real RunPod pod (Network or Global Volume), `torch.compile` on Linux, and runs of
 several minutes.
 
 ## Repository layout
@@ -284,7 +344,7 @@ several minutes.
 ├── custom_nodes/
 │   └── comfyui-flashhead/                 # Load Model / Render / Batch Folder
 │       ├── engine.py                      # chunk loop, anchors, face crop, ffmpeg output
-│       ├── storage.py                     # Network Volume preflight
+│       ├── storage.py                     # volume detection and checks (Network or Global Volume)
 │       └── face_detection_yunet_2023mar.onnx
 ├── samples/                               # sample portrait + 71 s voiceover the workflows open on
 ├── tools/
@@ -294,7 +354,7 @@ several minutes.
 │   ├── test_engine.py                     # chunk plan, audio, anchors, crop, output (CPU)
 │   ├── test_upstream.py                   # the pinned upstream still matches the engine
 │   ├── test_workflows.py                  # graphs vs. node schemas, samples, downloads
-│   ├── test_storage.py                    # Network Volume mount and filesystem checks
+│   ├── test_storage.py                    # volume detection, Network and Global Volume checks
 │   ├── test_boot.py                       # full setup with image/network fixtures (Linux)
 │   ├── test_jupyter.py                    # auth switch and real Jupyter Server smoke test
 │   └── test_setup.py                      # Bash download and start-command checks

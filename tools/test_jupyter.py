@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 BASH = os.environ.get("TEST_BASH") or ("C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else shutil.which("bash"))
 SETUP = (ROOT / "setup.sh").read_text(encoding="utf-8")
 AUTH = SETUP[SETUP.index("# Apply before the image starts Jupyter"):SETUP.index('echo "=== Ensuring System Dependencies')]
-RUNTIME = SETUP[SETUP.index("export JUPYTER_CONFIG_DIR="):SETUP.index("# SoulX-FlashHead has no ComfyUI nodes of its own")]
+# Network Volume layout: setup sets STATE_DIR=/workspace before this block.
+RUNTIME = "STATE_DIR=/workspace" + chr(10) + SETUP[SETUP.index("export JUPYTER_CONFIG_DIR="):SETUP.index("# SoulX-FlashHead has no ComfyUI nodes of its own")]
 
 
 @unittest.skipUnless(BASH and Path(BASH).exists(), "Bash required")

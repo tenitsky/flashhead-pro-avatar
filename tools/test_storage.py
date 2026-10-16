@@ -125,6 +125,100 @@ class StorageTests(unittest.TestCase):
                 self.assertNotIn("shell", run.call_args.kwargs)
             self.assertEqual(list(self.local.iterdir()), [])
 
+    def mounts(self, *entries):
+        text = "1 0 0:1 / / rw - overlay overlay rw\n"
+        for i, (path, kind) in enumerate(entries, 2):
+            text += f"{i} 1 0:{i} / {Path(path).resolve().as_posix()} rw - {kind} volume rw\n"
+        return patch.object(Path, "read_text", return_value=text)
+
+    def detect(self, *entries, links=True, env=None):
+        alternate = self.base / "workspace-global"
+        alternate.mkdir(exist_ok=True)
+        with patch.object(Path, "exists", return_value=True), self.mounts(*entries), \
+                patch.object(storage, "hard_links_work", return_value=links), \
+                patch.dict(os.environ, {"FLASHHEAD_STORAGE": "auto", **(env or {})}):
+            return storage.detect_storage(self.local, alternate)
+
+    def test_detect_network_volume_keeps_the_existing_layout(self):
+        self.assertEqual(self.detect((self.local, "fuse.vstorage")), ("network", self.local))
+        # A Network Volume at /workspace wins over a Global Volume beside it.
+        alternate = self.base / "workspace-global"
+        self.assertEqual(self.detect((self.local, "nfs4"), (alternate, "fuse")),
+                         ("network", self.local))
+
+    def test_detect_global_volume_by_missing_hard_links_or_mount_type(self):
+        self.assertEqual(self.detect((self.local, "fuse"), links=False), ("global", self.local))
+        self.assertEqual(self.detect((self.local, "fuse.global")), ("global", self.local))
+        # Mounted beside an empty /workspace (its mount path edited at deploy time).
+        alternate = self.base / "workspace-global"
+        self.assertEqual(self.detect((alternate, "fuse")), ("global", alternate))
+
+    def test_detect_never_takes_the_container_disk_for_a_volume(self):
+        for entries in ((), ((self.local, "overlay"),), ((self.local, "tmpfs"),)):
+            with self.subTest(entries=entries):
+                self.assertEqual(self.detect(*entries), ("network", self.local))
+
+    def test_detect_override(self):
+        alternate = self.base / "workspace-global"
+        self.assertEqual(self.detect((self.local, "fuse.vstorage"), env={"FLASHHEAD_STORAGE": "global"}),
+                         ("global", self.local))
+        self.assertEqual(self.detect((self.local, "nfs4"), (alternate, "fuse"), env={"FLASHHEAD_STORAGE": "global"}),
+                         ("global", alternate))
+        self.assertEqual(self.detect((self.local, "fuse"), links=False, env={"FLASHHEAD_STORAGE": "network"}),
+                         ("network", self.local))
+        with self.assertRaisesRegex(RuntimeError, "not auto, network or global"):
+            self.detect((self.local, "fuse"), env={"FLASHHEAD_STORAGE": "s3"})
+
+    @unittest.skipIf(os.name == "nt", "Linux hard links required")
+    def test_hard_link_probe_cleans_up(self):
+        preserved = self.write(self.local / "notebook.ipynb", b"existing user file")
+        self.assertTrue(storage.hard_links_work(self.local))
+        with patch.object(storage.os, "link", side_effect=PermissionError("not supported")):
+            self.assertFalse(storage.hard_links_work(self.local))
+        self.assertEqual(list(self.local.iterdir()), [preserved])
+
+    def test_global_volume_needs_a_mount_and_plain_writes_only(self):
+        with patch.object(Path, "exists", return_value=True), self.mounts():
+            with self.assertRaisesRegex(RuntimeError, "No volume mounted"):
+                storage.require_global_volume(self.local)
+        with patch.object(Path, "exists", return_value=True), self.mounts((self.local, "tmpfs")):
+            with self.assertRaisesRegex(RuntimeError, "not a persistent volume"):
+                storage.require_global_volume(self.local)
+        # No rename, link, symlink or chmod is needed on the volume.
+        with patch.object(Path, "exists", return_value=True), self.mounts((self.local, "fuse")), \
+                patch.object(storage.os, "replace", side_effect=OSError("no rename")), \
+                patch.object(storage.os, "link", side_effect=OSError("no hard links")), \
+                patch.object(storage.os, "chmod", side_effect=OSError("no permission bits")), \
+                patch.object(storage.os, "symlink", side_effect=OSError("no symlinks")):
+            storage.require_global_volume(self.local)
+        self.assertEqual(list(self.local.iterdir()), [])
+
+    @unittest.skipIf(os.name == "nt", "Linux symlinks required")
+    def test_link_global_data_seeds_once_and_links(self):
+        comfy = self.base / "local/ComfyUI"
+        volume = self.local / "runpod-slim/ComfyUI"
+        self.write(comfy / "models/configs/v1-inference.yaml", b"image default")
+        self.write(comfy / "models/checkpoints/put_checkpoints_here", b"")
+        self.write(comfy / "input/example.png", b"image example")
+        self.write(comfy / "user/comfyui.log", b"local log")
+        # A file already on the volume is never replaced by the image's copy.
+        own = self.write(volume / "input/example.png", b"my upload")
+        storage.link_global_data(comfy, volume)
+        for folder in storage.GLOBAL_DATA:
+            self.assertTrue((comfy / folder).is_symlink(), folder)
+            self.assertEqual((comfy / folder).resolve(), (volume / folder).resolve())
+        self.assertEqual((volume / "models/configs/v1-inference.yaml").read_bytes(), b"image default")
+        self.assertTrue((volume / "models/checkpoints/put_checkpoints_here").is_file())
+        self.assertEqual(own.read_bytes(), b"my upload")
+        # Logs and Manager caches under user/ stay on the container disk.
+        self.assertFalse((comfy / "user").is_symlink())
+        self.assertEqual((comfy / "user/comfyui.log").read_bytes(), b"local log")
+        self.assertFalse((volume / "user/comfyui.log").exists())
+        # Linked again on a later boot: nothing changes, nothing is copied.
+        own.write_bytes(b"edited upload")
+        storage.link_global_data(comfy, volume)
+        self.assertEqual((comfy / "input/example.png").read_bytes(), b"edited upload")
+
     def test_workspace_paths_on_the_volume_pass(self):
         comfy = self.local / "runpod-slim/ComfyUI"
         with patch.dict(os.environ, {"HF_HOME": str(self.local / ".cache/huggingface")}):

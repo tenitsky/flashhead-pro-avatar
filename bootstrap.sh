@@ -21,7 +21,7 @@ if ! dns_ok; then
 fi
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
   repo=$(mktemp -d /tmp/flashhead-pro-avatar.XXXXXX)
-  if git clone --depth 1 https://github.com/tenitsky/flashhead-pro-avatar.git "$repo"; then
+  if git clone --depth 1 --branch "${TEMPLATE_REF:-main}" https://github.com/tenitsky/flashhead-pro-avatar.git "$repo"; then
     exec bash "$repo/setup.sh"
   fi
   sleep 5

@@ -44,15 +44,29 @@ Registry credentials:     none (public image)
 # 4. STORAGE
 # ------------------------------------------------------------------------------
 
-Container disk:           5 GB     # disposable system files only
+Container disk:           20 GB    # Global Volume: first-boot downloads are staged here
+                                   # (Network Volume alone would need only 5 GB)
 Volume disk:              0 GB     # do NOT use a pod-local volume disk
 Volume mount path:        /workspace
 
-# At deploy time, each user attaches their OWN Network Volume at /workspace.
-# Recommended size: 50 GB (models ~6.9 GB, plus ComfyUI, venv, renders).
-# setup.sh refuses to run if /workspace is the container disk or a Global Volume.
-# To replace a pod later: deploy in the same datacenter, attach the same volume.
+# At deploy time, each user attaches their OWN volume at /workspace, either kind:
+#
+#   Network Volume (regional)
+#     Recommended size: 50 GB (models ~6.9 GB, plus ComfyUI, venv, renders).
+#     Everything lives on it. To replace a pod: deploy in the same datacenter,
+#     attach the same volume.
+#
+#   Global Volume (beta, any datacenter, grows by itself)
+#     Models, inputs, outputs and saved workflows live on it. ComfyUI, its venv,
+#     the node pack and upstream's code run from the container disk, set up again
+#     on each fresh container (a few minutes). Let the first pod finish downloading
+#     before starting more pods on the same volume.
+#
+# setup.sh detects which one is attached (log line "Storage: network volume ..." or
+# "Storage: global volume ...") and refuses to run on the container disk alone.
+# Override with FLASHHEAD_STORAGE=network or FLASHHEAD_STORAGE=global.
 # Storage types: https://docs.runpod.io/pods/storage/types
+# Global Volumes: https://docs.runpod.io/storage/globalvolume/overview
 
 
 # ------------------------------------------------------------------------------
@@ -87,6 +101,9 @@ HF_TOKEN=
 #   FLASHHEAD_REF=             test a newer SoulX-FlashHead commit (engine built on the pin)
 #   FILEBROWSER_PASSWORD=      only if port 8080 is exposed
 #   HF_HOME=                   default /workspace/.cache/huggingface
+#   FLASHHEAD_STORAGE=         network or global: override the volume detection
+#   TEMPLATE_REF=              branch or tag to clone (default main;
+#                              v1-network-volume = before Global Volume support)
 #
 # Never set COMFYUI_PATH: the image starts ComfyUI at /workspace/runpod-slim/ComfyUI.
 
@@ -145,7 +162,7 @@ HF_TOKEN=
 # ------------------------------------------------------------------------------
 # 10. FIRST-BOOT LOG CHECKLIST
 # ------------------------------------------------------------------------------
-#   "Network Volume workspace ready at /workspace"
+#   "Network Volume workspace ready at /workspace"  or  "Global Volume ready at /workspace"
 #   "GPU: <name>"                    (FATAL here = host driver too old; redeploy elsewhere)
 #   "SoulX-FlashHead: 9bc03de"
 #   model downloads ... "done."
