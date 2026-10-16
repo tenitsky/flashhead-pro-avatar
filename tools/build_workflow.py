@@ -43,8 +43,8 @@ VARIANTS = {
         title="Continuous", anchor=ANCHOR_CONTINUOUS, reset_seconds=40.0,
         suffix="_pro_continuous",
         summary="Every 1.12 s chunk continues from the previous one's last 5 frames, as "
-                "upstream does: seamless, never reset to the portrait. Over the 71 s "
-                "sample it did not drift."),
+                "upstream does: seamless, never reset to the portrait. In a 71 s test "
+                "it did not drift."),
 }
 
 # One voiceover, then a folder of them.
@@ -93,7 +93,7 @@ def note_start(w, v):
         audio = ("2. Put voiceovers in `ComfyUI/input/batch_audio/` (Jupyter, port 8888). "
                  "Files already rendered are skipped.")
     else:
-        audio = ("2. **Load Voiceover** - opens on the 71 s sample; any length works.")
+        audio = ("2. **Load Voiceover** - opens on the 57 s sample; any length works.")
     return f"""# FlashHead Pro - {v['title']}{' - Batch Folder' if w['batch'] else ''}
 
 {v['summary']}

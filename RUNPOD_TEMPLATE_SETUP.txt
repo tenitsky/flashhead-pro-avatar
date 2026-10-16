@@ -142,7 +142,7 @@ HF_TOKEN=
 # Samples (copied into ComfyUI/input/, never over an existing file): every workflow
 # opens on them, so the first run needs no uploads.
 #   sample_portrait.png      2048 x 2048 portrait
-#   sample_voiceover.mp3     71 s voiceover (64 chunks of 1.12 s)
+#   sample_voiceover.mp3     57 s voiceover (52 chunks of 1.12 s)
 
 # Workflows (copied into ComfyUI's Workflows sidebar; edited copies are never overwritten)
 #   flashhead_pro_1_continuous           upstream: every chunk continues the last
