@@ -1,5 +1,7 @@
 # SoulX-FlashHead Pro: RunPod ComfyUI template (long talking head, one GPU)
 
+> 🌐 More free RunPod and ComfyUI templates, with step-by-step guides: [tenitsky.com](https://tenitsky.com/#templates)
+
 A one-shot template that installs **SoulX-FlashHead Pro** (Soul-AILab, 1.3B) on RunPod
 with ComfyUI and JupyterLab. It turns **one portrait and a voiceover of any length** into
 a 512 × 512 talking-head video at 25 fps, stitched with your original audio, on a
@@ -309,3 +311,14 @@ several minutes.
 [YuNet face detector](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet)
 (OpenCV Zoo, MIT) · [wav2vec2-base-960h](https://huggingface.co/facebook/wav2vec2-base-960h)
 (Meta, Apache-2.0)
+
+<!-- tenitsky.com links -->
+## More templates and guides
+
+- 📖 [A consistent talking avatar from one photo with LTX-2.5 lip sync](https://tenitsky.com/guides/ltx-2-5-talking-avatar/)
+- 🐙 [LongCat-Video-Avatar 1.5: long-form talking avatar](https://github.com/tenitsky/longcat-avatar)
+- 📖 [Free AI voiceovers with Qwen3-TTS: 9 voices, voice design and cloning](https://tenitsky.com/guides/qwen3-tts-voiceovers/)
+- ☁️ New to RunPod? [Introduction to RunPod: running ComfyUI in the cloud](https://tenitsky.com/guides/introduction-to-runpod/)
+- 🎓 New to ComfyUI? [ComfyUI for beginners: build a text-to-image workflow node by node](https://tenitsky.com/guides/comfyui-node-basics-text-to-image/)
+- 🌐 All templates and guides: [tenitsky.com](https://tenitsky.com/)
+- 📺 YouTube: [AI Art Pipeline](https://www.youtube.com/@aiartpipeline)
